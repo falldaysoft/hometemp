@@ -7,6 +7,7 @@ import UIKit
 /// characteristics we care about, and appends every event plus a periodic heartbeat to
 /// JSONL files in ~/Library/Application Support/HomeTemp/ (Catalyst, unsandboxed).
 final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDelegate, HMHomeDelegate {
+    static let shared = Collector()
     struct Row: Identifiable {
         let id: String          // characteristic uniqueIdentifier
         let room: String

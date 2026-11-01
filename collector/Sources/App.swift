@@ -1,8 +1,19 @@
 import SwiftUI
 
+/// The collector is created at launch, not by the window: when launchd starts the binary directly
+/// (LaunchAgent, no LaunchServices), no scene ever connects, so anything owned by a scene never runs.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        _ = Collector.shared
+        return true
+    }
+}
+
 @main
 struct HomeTempCollectorApp: App {
-    @StateObject private var collector = Collector()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @ObservedObject private var collector = Collector.shared
 
     var body: some Scene {
         WindowGroup {

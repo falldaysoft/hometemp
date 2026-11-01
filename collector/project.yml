@@ -21,7 +21,7 @@ targets:
         NSHomeKitUsageDescription: "HomeTemp records temperatures and thermostat state so you can chart heating and cooling over time."
         UILaunchScreen: {}
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
+          UIApplicationSupportsMultipleScenes: true
     entitlements:
       path: Sources/HomeTempCollector.entitlements
       properties:

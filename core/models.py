@@ -173,6 +173,9 @@ class HomeSettings(models.Model):
     gas_price_m3 = models.FloatField(default=0.45, help_text="All-in $/m³ (commodity + delivery + transport)")
     electricity_kwh = models.FloatField(default=0.13, help_text="All-in $/kWh")
     prices_confirmed = models.BooleanField(default=False)
+    weather_fetched_at = models.DateTimeField(null=True, blank=True)
+    weather_error = models.CharField(max_length=300, blank=True)
+    location_changed = models.BooleanField(default=False, help_text="Scheduler backfills on its next pass")
 
     @classmethod
     def load(cls):

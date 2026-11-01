@@ -19,7 +19,8 @@
     </div>
   </div>
   <p class="caption mt-2 px-1">Weather comes from Open-Meteo's free forecast model for that spot, every 15 minutes. The location is kept in HomeTemp's database, not in the code.</p>
-  {% if saved and not saved_what %}<p class="mt-3 text-center text-[13px] text-[var(--ok)]" role="status">Saved. Outdoor weather is loading now.</p>{% endif %}
+  {% if saved and not saved_what %}<p class="mt-3 text-center text-[13px] text-[var(--ok)]" role="status">Saved. Outdoor weather arrives within a minute.</p>{% endif %}
+  {% if s.has_location %}<p class="caption mt-2 px-1">{% if s.weather_error %}<span class="text-[var(--warn)]">Last weather fetch failed: {{ s.weather_error }}</span>{% elif s.weather_fetched_at %}Weather last fetched {{ s.weather_fetched_at|timesince }} ago.{% elif s.location_changed %}Waiting for the first weather fetch.{% endif %}</p>{% endif %}
 
   <div class="section-label">Energy prices{% if not s.prices_confirmed %} (typical values, not yours yet){% endif %}</div>
   <form class="group" hx-post="{% url 'save_prices' %}" hx-target="#sheet-body">

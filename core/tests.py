@@ -206,3 +206,29 @@ class HistoryTests(TestCase):
         self.assertIn('class="band-heating"', body)
         self.assertIn('class="set"', body)
         self.assertIn("Office Thermostat", body)
+
+
+class SettingsSaveTests(TestCase):
+    def test_save_location_with_csrf_then_scheduler_backfills(self):
+        from unittest import mock
+        from django.core.management import call_command
+        from django.test import Client
+        from .models import HomeSettings
+        from . import weather
+        User.objects.create_user("u", password="p")
+        c = Client(enforce_csrf_checks=True)
+        c.login(username="u", password="p")
+        c.get("/")
+        r = c.post("/settings/", {"csrfmiddlewaretoken": c.cookies["csrftoken"].value, "latitude": "45.3",
+                                  "longitude": "-75.9", "place": "Kanata, Ontario, Canada",
+                                  "timezone": "America/Toronto"}, HTTP_HX_REQUEST="true")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Saved", r.content.decode())
+        s = HomeSettings.load()
+        self.assertEqual((s.place, s.location_changed), ("Kanata, Ontario, Canada", True))
+        with mock.patch.object(weather, "get_json", return_value={"hourly": {"time": []}}) as gj:
+            call_command("fetch_weather", stdout=mock.MagicMock())
+        self.assertEqual(gj.call_args[0][1]["past_days"], 14)
+        s.refresh_from_db()
+        self.assertFalse(s.location_changed)
+        self.assertIsNotNone(s.weather_fetched_at)

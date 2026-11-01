@@ -51,7 +51,7 @@ services:
     depends_on:
       web:
         condition: service_healthy
-    command: python manage.py fetch_weather --loop 900
+    command: python manage.py fetch_weather --loop
 
 networks:
   infra-network:

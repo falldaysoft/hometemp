@@ -3,6 +3,8 @@
 {% block content %}
 {% include "core/_dashboard.html" %}
 
+<div id="toast" role="alert" class="fixed inset-x-0 bottom-6 z-50 mx-auto hidden w-fit max-w-[90vw] rounded-full bg-[rgba(255,69,58,.92)] px-4 py-2 text-[14px] font-medium text-white shadow-lg"></div>
+
 <dialog id="sheet" class="sheet" aria-label="Details">
   <div id="sheet-body"></div>
 </dialog>
@@ -19,5 +21,20 @@
     if (sheet.open && e.detail.elt.id === "dash" && !e.detail.requestConfig.triggeringEvent?.type?.startsWith("dashboard")) e.preventDefault();
   });
   sheet.addEventListener("close", () => htmx.trigger(document.body, "dashboard-changed"));
+
+  // Never fail silently: show what went wrong when a request doesn't succeed.
+  const toast = document.getElementById("toast");
+  function showError(msg) {
+    toast.textContent = msg;
+    toast.classList.remove("hidden");
+    clearTimeout(showError.t);
+    showError.t = setTimeout(() => toast.classList.add("hidden"), 6000);
+  }
+  document.body.addEventListener("htmx:responseError", (e) => {
+    const s = e.detail.xhr.status;
+    showError(s === 403 ? "Couldn't save: your session expired. Reload the page and try again."
+      : `Couldn't complete that: the server returned ${s}.`);
+  });
+  document.body.addEventListener("htmx:sendError", () => showError("Couldn't reach HomeTemp. Check your connection."));
 </script>
 {% endblock %}

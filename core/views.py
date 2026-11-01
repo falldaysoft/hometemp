@@ -93,12 +93,10 @@ def settings_sheet(request):
         else:
             s.place = request.POST.get("place", "")[:200]
             s.timezone = request.POST.get("timezone", "")[:60]
+            s.location_changed = True  # the scheduler container backfills within a minute
+            s.weather_error = ""
             s.save()
             saved = True
-            try:
-                weather.fetch(s, past_days=14)  # backfill right away so the tile isn't empty
-            except Exception:
-                pass
     resp = render(request, "core/_sheet_settings.html", settings_context(s, saved))
     if saved:
         resp["HX-Trigger"] = "dashboard-changed"

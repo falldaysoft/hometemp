@@ -154,19 +154,43 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
                 rows[id] = rows[id] ?? Row(id: id, room: accessory.room?.name ?? "—", accessory: accessory.name,
                                            kind: Self.interesting[c.characteristicType] ?? c.localizedDescription,
                                            value: "…", events: 0)
-                c.readValue { [weak self] error in
-                    DispatchQueue.main.async {
-                        if let error { self?.recordError("read", c, accessory, error) }
-                        else { self?.recordValue(c, of: accessory, source: "initial") }
-                    }
-                }
+                read(c, of: accessory, attempt: 0)
                 if c.properties.contains(HMCharacteristicPropertySupportsEventNotification) {
-                    c.enableNotification(true) { [weak self] error in
-                        DispatchQueue.main.async {
-                            if let error { self?.recordError("enableNotification", c, accessory, error) }
-                        }
-                    }
+                    subscribe(c, of: accessory, attempt: 0)
                 }
+            }
+        }
+    }
+
+    /// HomeKit fails some reads and subscriptions for a while after launch (seen on studio as "Missing entitlement
+    /// for API", for characteristics that succeed moments later), so retry with backoff: 30 s, 2, 5, 15, 60 min.
+    static let retryDelays: [TimeInterval] = [30, 120, 300, 900, 3600]
+
+    private func retry(_ attempt: Int, _ work: @escaping () -> Void) {
+        guard attempt < Self.retryDelays.count else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryDelays[attempt], execute: work)
+    }
+
+    private func read(_ c: HMCharacteristic, of accessory: HMAccessory, attempt: Int) {
+        c.readValue { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let error {
+                    self.recordError("read", c, accessory, error, attempt: attempt)
+                    self.retry(attempt) { self.read(c, of: accessory, attempt: attempt + 1) }
+                } else {
+                    self.recordValue(c, of: accessory, source: "initial")
+                }
+            }
+        }
+    }
+
+    private func subscribe(_ c: HMCharacteristic, of accessory: HMAccessory, attempt: Int) {
+        c.enableNotification(true) { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self, let error else { return }
+                self.recordError("enableNotification", c, accessory, error, attempt: attempt)
+                self.retry(attempt) { self.subscribe(c, of: accessory, attempt: attempt + 1) }
             }
         }
     }
@@ -214,10 +238,12 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
         rows[id] = row
     }
 
-    private func recordError(_ op: String, _ c: HMCharacteristic, _ accessory: HMAccessory, _ error: Error) {
+    private func recordError(_ op: String, _ c: HMCharacteristic, _ accessory: HMAccessory, _ error: Error,
+                             attempt: Int = 0) {
         var entry = base(c, accessory)
         entry["type"] = "error"
         entry["op"] = op
+        entry["attempt"] = attempt
         entry["error"] = error.localizedDescription
         record(entry)
         log.error("\(op) failed for \(accessory.name): \(error.localizedDescription)")

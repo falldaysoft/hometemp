@@ -405,3 +405,59 @@ class OverlayTests(TestCase):
         self.assertIn("CO₂, own scale 500 ppm to 1040 ppm", on)
         self.assertIn("now 1040 ppm", on)
         self.assertIn('aria-pressed="true"', on)
+
+
+class ThermalTests(TestCase):
+    def setUp(self):
+        import math
+        from datetime import datetime, timedelta, timezone as tz
+        from .models import Characteristic, HvacInterval, Room, WeatherHour, Zone
+        self.office = Zone.objects.get(name="Office")
+        room = Room.objects.create(name="Office", zone=self.office)
+        self.th = Accessory.objects.create(uuid=ACC, name="Office Thermostat", role="ambient", homekit_room=room)
+        self.temp = Characteristic.objects.create(uuid="C4000000-0000-0000-0000-000000000001", accessory=self.th, kind="currentTemperature")
+        Characteristic.objects.create(uuid="C4000000-0000-0000-0000-000000000002", accessory=self.th, kind="currentHeaterCoolerState")
+        self.sp = Characteristic.objects.create(uuid="C4000000-0000-0000-0000-000000000003", accessory=self.th, kind="heatingThreshold")
+        from django.utils import timezone as djtz
+        self.t0 = (djtz.now() - timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+        for h in range(-2, 40):
+            WeatherHour.objects.create(ts=self.t0 + timedelta(hours=h), issued=None, temperature=0.0)
+        # Furnace off from t0: cool from 20° toward 0° with k = 0.05/h for 8 h, readings every 15 min.
+        Reading.objects.create(characteristic=self.sp, ts=self.t0 - timedelta(hours=1), value=15, source=0)
+        for i in range(0, 33):
+            t = self.t0 + timedelta(minutes=15 * i)
+            Reading.objects.create(characteristic=self.temp, ts=t, value=20 * math.exp(-0.05 * i / 4), source=1)
+        # Fiddle with the setpoint (counts as one change to 20°), then warm 13.4 → 20 in 60 min.
+        self.w0 = self.t0 + timedelta(hours=8, minutes=5)
+        for sec, v in ((0, 16.5), (5, 19), (9, 13.5), (14, 20)):
+            Reading.objects.create(characteristic=self.sp, ts=self.w0 + timedelta(seconds=sec), value=v, source=0)
+        for i, v in enumerate((13.4, 15.0, 16.6, 18.2, 19.6)):
+            Reading.objects.create(characteristic=self.temp, ts=self.w0 + timedelta(minutes=1 + 15 * i), value=v, source=0)
+        HvacInterval.objects.create(thermostat=self.th, start=self.w0, end=self.w0 + timedelta(minutes=61), mode="heating")
+
+    def test_coast_fit_recovers_k(self):
+        from .thermal import coasts
+        c = [c for c in coasts(self.office, now=self.w0) if c["k"]]
+        self.assertTrue(c)
+        self.assertAlmostEqual(c[0]["k"], 0.05, delta=0.004)
+
+    def test_warmup_merges_fiddling_and_times_it(self):
+        from .thermal import warmups
+        ws = warmups(self.office, now=self.w0 + __import__("datetime").timedelta(hours=3))
+        self.assertEqual(len(ws), 1)
+        w = ws[0]
+        self.assertEqual((w["from_setpoint"], w["target"]), (15, 20))
+        self.assertAlmostEqual(w["start_temp"], 13.4, delta=0.01)
+        self.assertAlmostEqual(w["minutes"], 61, delta=0.5)
+        self.assertAlmostEqual(w["rate"], (19.6 - w["start_temp"]) / (61 / 60), delta=0.05)
+
+    def test_eta_and_sheet(self):
+        from .thermal import eta
+        warm = eta(self.office, 15, 20, 0)
+        self.assertAlmostEqual(warm["minutes"], 5 / ((19.6 - 13.406) / (61 / 60)) * 60, delta=1)
+        User.objects.create_user("u", password="p")
+        self.client.login(username="u", password="p")
+        body = self.client.get(f"/zone/{self.office.pk}/warmup/").content.decode()
+        self.assertIn("Warm-ups", body)
+        calc = self.client.get(f"/zone/{self.office.pk}/warmup/?calc=1&from=15&to=20&outdoor=0").content.decode()
+        self.assertIn("min</strong> of heating", calc)

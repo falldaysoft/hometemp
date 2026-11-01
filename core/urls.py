@@ -17,4 +17,5 @@ urlpatterns = [
     path("cost/", views.cost, name="cost"),
     path("history/", views.history, name="history"),
     path("zone/<int:pk>/schedule/", views.schedule, name="schedule"),
+    path("zone/<int:pk>/warmup/", views.warmup, name="warmup"),
 ]

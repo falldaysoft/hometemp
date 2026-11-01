@@ -1,0 +1,7 @@
+{% load hometemp %}
+<div id="calc-result" class="px-4 pb-3 text-[15px]" role="status">
+  {% if calc.error %}<span class="text-[var(--warn)]">{{ calc.error }}</span>
+  {% elif calc.minutes is None %}<span class="caption">{% if calc.kind == "warm" %}Not enough warm-ups recorded yet to estimate this.{% else %}Can't estimate a cool-down to that temperature: it's at or below the outdoor temperature, or there isn't enough furnace-off data yet.{% endif %}</span>
+  {% elif calc.kind == "warm" %}About <strong class="num">{{ calc.minutes|floatformat:0 }} min</strong> of heating to go from {{ calc.from|temp }} to {{ calc.to|temp }} with {{ calc.outdoor|temp }} outside.
+  {% else %}About <strong class="num">{% if calc.minutes >= 90 %}{% widthratio calc.minutes 60 1 %} h{% else %}{{ calc.minutes|floatformat:0 }} min{% endif %}</strong> to drift from {{ calc.from|temp }} down to {{ calc.to|temp }} with the heat off and {{ calc.outdoor|temp }} outside.{% endif %}
+</div>

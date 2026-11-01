@@ -69,8 +69,16 @@
             {% with o=z.occupancy %}{% if o %}<span class="mr-1 inline-block h-2 w-2 rounded-full {% if o.kind == 'work' %}bg-[var(--ok)]{% elif o.kind == 'other' %}bg-[#bf5af2]{% else %}bg-white/30{% endif %}"></span>{{ o.label }}{% if o.until %} until {{ o.until|date:"D g:i a" }}{% endif %}{% else %}Set a schedule{% endif %}{% endwith %}
           </button>
         </div>
-        <button type="button" class="caption shrink-0 hover:text-white" hx-get="{% url 'history' %}?zone={{ z.zone.pk }}" hx-target="#sheet-body">History</button>
+        <div class="flex shrink-0 gap-4">
+          {% if z.thermostat %}<button type="button" class="caption hover:text-white" hx-get="{% url 'warmup' z.zone.pk %}" hx-target="#sheet-body">Warm-up</button>{% endif %}
+          <button type="button" class="caption hover:text-white" hx-get="{% url 'history' %}?zone={{ z.zone.pk }}" hx-target="#sheet-body">History</button>
+        </div>
       </div>
+      {% if z.preheat and z.preheat.begin and z.occupancy.kind == "idle" %}
+      <button type="button" class="caption mt-0.5 text-left hover:text-white" hx-get="{% url 'warmup' z.zone.pk %}" hx-target="#sheet-body">
+        Start heating {{ z.preheat.begin|date:"D g:i a" }} to be at {{ z.preheat.target|temp }} by {{ z.preheat.next.start|date:"g:i a" }}
+      </button>
+      {% endif %}
       <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {% if z.thermostat %}
           {% include "core/_tile.html" with t=z.thermostat wide=True %}

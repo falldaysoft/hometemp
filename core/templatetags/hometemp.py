@@ -52,3 +52,15 @@ def signed(v):
 @register.filter
 def get_item(d, key):
     return d.get(key) if d else None
+
+
+@register.filter
+def invert(v):
+    v = _num(v)
+    return None if not v else 1 / v
+
+
+@register.filter
+def mul(v, n):
+    v = _num(v)
+    return None if v is None else v * float(n)

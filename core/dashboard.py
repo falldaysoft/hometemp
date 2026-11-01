@@ -200,7 +200,13 @@ def dashboard(now=None):
                 t.delta = t.temp - thermo.temp
         temps = [t.temp for t in members if t.temp is not None and not t.stale]
         from .occupancy import now_state
+        from .thermal import preheat
+        try:
+            advice = preheat(zone, now) if thermo else None
+        except Exception:  # never let a model hiccup break the dashboard
+            advice = None
         zones.append({"zone": zone, "thermostat": thermo, "rooms": rooms, "occupancy": now_state(zone, now),
+                      "preheat": advice,
                       "range": (min(temps), max(temps)) if temps else None})
 
     appliances = sorted((t for t in tiles if t.acc.role == Accessory.Role.APPLIANCE), key=lambda t: t.acc.name)

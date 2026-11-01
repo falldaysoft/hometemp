@@ -261,3 +261,22 @@ def schedule(request, pk):
     if request.method == "POST":
         resp["HX-Trigger"] = "dashboard-changed"
     return resp
+
+
+@login_required
+def warmup(request, pk):
+    from . import thermal
+    zone = get_object_or_404(Zone, pk=pk)
+    thermo, rooms = thermal.zone_devices(zone)
+    calc = None
+    if request.GET.get("calc"):
+        try:
+            f, t, o = (float(request.GET[k]) for k in ("from", "to", "outdoor"))
+            calc = {"from": f, "to": t, "outdoor": o, **thermal.eta(zone, f, t, o)}
+        except (KeyError, ValueError):
+            calc = {"error": "Enter three temperatures."}
+    ctx = {"zone": zone, "thermo": thermo, "warmups": list(reversed(thermal.warmups(zone))),
+           "coasts": [c for c in reversed(thermal.coasts(zone)) if c["hours"] >= 2],
+           "model": thermal.model(zone), "preheat": thermal.preheat(zone), "calc": calc}
+    template = "core/_warmup_calc.html" if request.GET.get("calc") else "core/_sheet_warmup.html"
+    return render(request, template, ctx)

@@ -1,0 +1,74 @@
+{% load hometemp %}
+<div class="max-h-[92vh] overflow-y-auto px-4 pb-6 pt-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-[17px] font-semibold">{{ zone.name }} warm-up and heat loss</div>
+      <div class="caption">Learned from {{ model.warmups }} warm-up{{ model.warmups|pluralize }} and {{ model.coasts }} furnace-off stretch{{ model.coasts|pluralize:"es" }}{% if model.warmups < 4 %}; rough until more mornings are recorded{% endif %}</div>
+    </div>
+    <form method="dialog"><button class="grid h-8 w-8 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Close">{% include "core/_icon.html" with name="close" %}</button></form>
+  </div>
+
+  {% if not thermo %}
+  <div class="group mt-5 px-4 py-6 text-center caption">This side has no thermostat in HomeKit yet, so HomeTemp can't see when the furnace runs. Warm-ups and heat loss appear once its thermostat joins.</div>
+  {% else %}
+
+  {% if preheat and preheat.begin %}
+  <div class="mt-5 rounded-2xl bg-[var(--lit)] p-4 text-[var(--ink)]">
+    <div class="text-[13px] text-[rgba(60,60,67,.7)]">To be at {{ preheat.target|temp }} by {{ preheat.next.start|date:"D g:i a" }}</div>
+    <div class="mt-1 text-[28px] font-semibold leading-tight">Start heating at {{ preheat.begin|date:"g:i a" }}</div>
+    <p class="mt-1 text-[13px] text-[rgba(60,60,67,.8)]">
+      {% if preheat.predicted is not None %}It should have drifted to about {{ preheat.predicted|temp }} by then{% else %}It'll be held at the {{ preheat.start_temp|temp }} setback{% endif %}{% if preheat.outdoor is not None %}, with {{ preheat.outdoor|temp }} forecast outside{% endif %}. Warming runs about {{ preheat.rate|floatformat:1 }}° an hour, so that's {{ preheat.minutes|floatformat:0 }} min.
+      {% if preheat.typical_start %}Your thermostat has been starting at {{ preheat.typical_start }} and taking {{ preheat.typical_minutes|floatformat:0 }} min.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="section-label">How long would it take?</div>
+  <form class="group" hx-get="{% url 'warmup' zone.pk %}" hx-target="#calc-result" hx-swap="outerHTML" hx-trigger="submit, input changed delay:400ms">
+    <input type="hidden" name="calc" value="1">
+    <div class="row items-center"><label for="c-from">From</label><span class="flex items-center gap-1"><input id="c-from" name="from" value="{{ preheat.start_temp|default:15|floatformat:1 }}" inputmode="decimal" class="field num w-16 text-right">°</span></div>
+    <div class="row items-center"><label for="c-to">To</label><span class="flex items-center gap-1"><input id="c-to" name="to" value="{{ preheat.target|default:20|floatformat:1 }}" inputmode="decimal" class="field num w-16 text-right">°</span></div>
+    <div class="row items-center"><label for="c-out">Outside</label><span class="flex items-center gap-1"><input id="c-out" name="outdoor" value="{{ preheat.outdoor|default:0|floatformat:0 }}" inputmode="decimal" class="field num w-16 text-right">°</span></div>
+    <div id="calc-result" class="px-4 pb-3 caption">Change a value to estimate. A lower "To" estimates the drift with the heat off.</div>
+  </form>
+
+  <div class="section-label">Warm-ups</div>
+  <div class="group">
+    {% for w in warmups %}
+    <div class="px-4 py-2.5">
+      <div class="flex items-baseline justify-between gap-3">
+        <span>{{ w.start|date:"D j M, g:i a" }}</span>
+        <span class="num text-[var(--text-2)]">{% if w.complete %}{{ w.minutes|floatformat:0 }} min{% else %}didn't reach it{% endif %}</span>
+      </div>
+      <div class="mt-0.5 text-[12px] text-[var(--text-3)]">
+        Set {{ w.from_setpoint|temp }} → {{ w.target|temp }}, starting at {{ w.start_temp|temp }}{% if w.rate %}; {{ w.rate|floatformat:1 }}° an hour{% endif %}; furnace {{ w.furnace_min|floatformat:0 }} min{% if w.outdoor is not None %}; {{ w.outdoor|temp }} outside{% endif %}
+        {% for r in w.rooms %}<br>{{ r.name }} went {{ r.start|temp }} → {{ r.end|temp }} ({{ r.rise|signed }}){% endfor %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="row"><span class="caption">No warm-ups yet. One is recorded each time the heat setpoint goes up by a degree or more.</span></div>
+    {% endfor %}
+  </div>
+
+  <div class="section-label">Heat loss with the furnace off</div>
+  <div class="group">
+    {% if model.k %}
+    <div class="px-4 py-3">
+      <div>Time constant about <strong class="num">{{ model.k|invert|floatformat:0 }} h</strong></div>
+      <p class="mt-0.5 text-[12px] text-[var(--text-3)]">The gap between inside and outside shrinks by about {% widthratio model.k 0.01 1 %}% an hour. At 20° inside and 0° outside that's roughly {{ model.k|mul:20|floatformat:1 }}° lost in the first hour. Higher means a leakier space.</p>
+    </div>
+    {% endif %}
+    {% for c in coasts %}
+    <div class="px-4 py-2.5">
+      <div class="flex items-baseline justify-between gap-3">
+        <span>{{ c.start|date:"D j M, g:i a" }}, {{ c.hours|floatformat:1 }} h</span>
+        <span class="num text-[var(--text-2)]">{{ c.t_start|temp }} → {{ c.t_end|temp }}</span>
+      </div>
+      <div class="mt-0.5 text-[12px] text-[var(--text-3)]">{% if c.outdoor is not None %}{{ c.outdoor|temp }} outside{% endif %}{% if c.tau %}; time constant {{ c.tau|floatformat:0 }} h{% elif c.drop <= 0 %}; warmed instead (sun or people), not used{% endif %}</div>
+    </div>
+    {% empty %}
+    <div class="row"><span class="caption">No furnace-off stretches of 2 hours or more yet. Nights and setback days provide them.</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

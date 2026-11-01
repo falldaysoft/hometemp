@@ -6,13 +6,14 @@ struct HomeTempCollectorApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(collector: collector)
+            ContentView(collector: collector, uploader: collector.uploader)
         }
     }
 }
 
 struct ContentView: View {
     @ObservedObject var collector: Collector
+    @ObservedObject var uploader: Uploader
 
     private var sortedRows: [Collector.Row] {
         collector.rows.values.sorted { ($0.room, $0.accessory, $0.kind) < ($1.room, $1.accessory, $1.kind) }
@@ -26,6 +27,11 @@ struct ContentView: View {
                     LabeledContent("Events", value: "\(collector.totalEvents)")
                     LabeledContent("Last heartbeat",
                                    value: collector.lastHeartbeat?.formatted(date: .omitted, time: .standard) ?? "—")
+                    LabeledContent("Last upload",
+                                   value: uploader.lastSuccess?.formatted(date: .omitted, time: .standard) ?? "—")
+                    if let error = uploader.lastError {
+                        Text("Upload problem: \(error)").font(.footnote).foregroundStyle(.red)
+                    }
                 }
                 Section("Characteristics") {
                     ForEach(sortedRows) { row in

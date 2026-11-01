@@ -39,10 +39,10 @@ class Room(models.Model):
 class Accessory(models.Model):
     class Role(models.TextChoices):
         UNCLASSIFIED = "unclassified", "Unclassified"
-        AMBIENT = "ambient", "Room (ambient)"
-        APPLIANCE = "appliance", "Appliance (fridge/freezer)"
+        AMBIENT = "ambient", "Room"
+        APPLIANCE = "appliance", "Appliance"
         OUTDOOR = "outdoor", "Outdoor"
-        IGNORE = "ignore", "Ignore"
+        IGNORE = "ignore", "Hidden"
 
     uuid = models.UUIDField(unique=True)
     name = models.CharField(max_length=200)
@@ -94,7 +94,10 @@ class Characteristic(models.Model):
     uuid = models.UUIDField(unique=True)
     accessory = models.ForeignKey(Accessory, on_delete=models.CASCADE, related_name="characteristics")
     kind = models.CharField(max_length=60, db_index=True)
+    type_uuid = models.CharField(max_length=40, blank=True, help_text="HomeKit characteristic type")
+    description = models.CharField(max_length=100, blank=True, help_text="HomeKit's own label")
     unit = models.CharField(max_length=30, blank=True)
+    format = models.CharField(max_length=20, blank=True)
 
     def __str__(self):
         return f"{self.accessory.name} · {self.kind}"
@@ -114,6 +117,23 @@ class Reading(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["characteristic", "ts"], name="reading_unique_ts")]
         indexes = [models.Index(fields=["characteristic", "-ts"], name="reading_latest")]
+
+
+class RawRecord(models.Model):
+    """Every collector record that isn't a numeric reading, verbatim: text values, inventories,
+    reachability, lifecycle, errors. Kept so future features can use data nobody models yet."""
+
+    ts = models.DateTimeField(db_index=True)
+    type = models.CharField(max_length=40, db_index=True)
+    data = models.JSONField()
+    digest = models.CharField(max_length=64, unique=True, help_text="sha256 of the canonical record; dedupes resends")
+    device = models.ForeignKey("CollectorDevice", null=True, blank=True, on_delete=models.SET_NULL)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    @staticmethod
+    def digest_of(rec):
+        import json
+        return hashlib.sha256(json.dumps(rec, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 class CollectorDevice(models.Model):

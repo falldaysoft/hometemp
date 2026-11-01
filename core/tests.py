@@ -45,6 +45,19 @@ class IngestTests(TestCase):
         self.assertEqual(sorted(Reading.objects.values_list("value", flat=True)), [0.0, 2.0])
         self.assertEqual(r.json()["through"], "2026-11-01T11:03:53+00:00")
 
+    def test_everything_is_kept(self):
+        recs = [INVENTORY, {"type": "lifecycle", "event": "didEnterBackground", "ts": "2026-11-01T12:00:00Z"},
+                {**value(ACC, "D0000000-0000-0000-0000-000000000001", "0000004C-0000-1000-8000-0026BB765291", "abc",
+                         "2026-11-01T12:00:01Z"), "description": "Some text", "characteristicType": "0000004C"},
+                {**value(ACC, "D0000000-0000-0000-0000-000000000002", "00000022-0000-1000-8000-0026BB765291", True,
+                         "2026-11-01T12:00:02Z"), "description": "Motion Detected"}]
+        self.post(recs)
+        self.post(recs)
+        from .models import Characteristic, RawRecord
+        self.assertEqual(sorted(RawRecord.objects.values_list("type", flat=True)), ["inventory", "lifecycle", "value"])
+        self.assertEqual(Reading.objects.get(characteristic__description="Motion Detected").value, 1.0)
+        self.assertTrue(Characteristic.objects.filter(description="Some text").exists())
+
     def test_roles_and_zones(self):
         self.post([INVENTORY])
         thermo, fridge = Accessory.objects.get(uuid=ACC), Accessory.objects.get(uuid=FRIDGE)
@@ -68,4 +81,13 @@ class NowViewTests(TestCase):
         body = self.client.get("/").content.decode()
         self.assertIn("Heating", body)
         self.assertIn("17.0°", body)
-        self.assertIn("No thermostat in HomeKit for this side", body)
+        self.assertIn("No thermostat in HomeKit", body)
+        acc = Accessory.objects.get(uuid=ACC)
+        sheet = self.client.get(f"/accessory/{acc.pk}/").content.decode()
+        self.assertIn("What HomeKit reports", sheet)
+        self.assertIn("Heating", sheet)
+        r = self.client.post(f"/accessory/{acc.pk}/update/", {"role": "ignore", "room": "homekit", "offset": "0.5"})
+        self.assertEqual(r.headers["HX-Trigger"], "dashboard-changed")
+        acc.refresh_from_db()
+        self.assertEqual((acc.role, acc.calibration_offset), ("ignore", 0.5))
+        self.assertIn("1 hidden sensor", self.client.get("/").content.decode())

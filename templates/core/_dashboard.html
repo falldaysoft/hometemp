@@ -1,0 +1,89 @@
+{% load hometemp %}
+<div id="dash" hx-get="{% url 'index' %}" hx-trigger="every 60s, dashboard-changed from:body" hx-swap="outerHTML">
+  <div id="glow" class="glow glow-{{ glow }}"></div>
+  <div class="page mx-auto max-w-6xl px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
+
+    <header class="flex items-center justify-between gap-3">
+      <h1 class="text-[34px] font-bold leading-none tracking-tight">HomeTemp</h1>
+      <div class="flex items-center gap-2">
+        <button type="button" class="btn" hx-get="{% url 'rooms' %}" hx-target="#sheet-body">
+          {% include "core/_icon.html" with name="rooms" %}Rooms
+        </button>
+        <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn">Log out</button></form>
+      </div>
+    </header>
+
+    <div class="scroll-x -mx-4 mt-5 flex gap-2 px-4 sm:mx-0 sm:px-0">
+      {% if collector_stale %}
+      <span class="pill alert"><span class="pill-icon">{% include "core/_icon.html" with name="collector" %}</span>
+        <span><b>Collector quiet</b> <span class="sub">{% if latest_reading %}since {{ latest_reading|ago }}{% else %}no data yet{% endif %}</span></span></span>
+      {% else %}
+      <span class="pill"><span class="pill-icon">{% include "core/_icon.html" with name="collector" %}</span>
+        <span><b>Live</b> <span class="sub">updated {{ latest_reading|ago }}</span></span></span>
+      {% endif %}
+      {% for z in zones %}{% if z.range %}
+      <a class="pill" href="#zone-{{ z.zone.pk }}"><span class="pill-icon {% if z.thermostat.active %}icon-disc {{ z.thermostat.state }}{% endif %}">{% include "core/_icon.html" with name="thermostat" %}</span>
+        <span><b>{{ z.zone.name }}</b> <span class="sub num">{% if z.range.0|floatformat:1 == z.range.1|floatformat:1 %}{{ z.range.0|temp }}{% else %}{{ z.range.0|floatformat:1 }}–{{ z.range.1|temp }}{% endif %}</span></span></a>
+      {% endif %}{% endfor %}
+      {% if appliance_range %}
+      <a class="pill" href="#appliances"><span class="pill-icon">{% include "core/_icon.html" with name="fridge" %}</span>
+        <span><b>Appliances</b> <span class="sub num">{{ appliance_range.0|floatformat:1 }}–{{ appliance_range.1|temp }}</span></span></a>
+      {% endif %}
+      {% if review %}
+      <a class="pill alert" href="#review"><span class="pill-icon">{% include "core/_icon.html" with name="sensor" %}</span>
+        <span><b>{{ review|length }} sensor{{ review|length|pluralize }}</b> <span class="sub">need{{ review|length|pluralize:"s," }} a role</span></span></a>
+      {% endif %}
+    </div>
+
+    {% if review %}
+    <section id="review" class="mt-8">
+      <h2 class="text-[20px] font-semibold">Needs a role</h2>
+      <p class="caption mt-1 max-w-prose">These sensors stay out of room temperatures until you say what they measure. HomeKit lumps everything together; this is where they get separated.</p>
+      <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {% for t in review %}{% include "core/_tile.html" with t=t review=True %}{% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% for z in zones %}
+    <section id="zone-{{ z.zone.pk }}" class="mt-8">
+      <h2 class="text-[20px] font-semibold">{{ z.zone.name }}</h2>
+      <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {% if z.thermostat %}
+          {% include "core/_tile.html" with t=z.thermostat wide=True %}
+        {% else %}
+          <div class="tile col-span-2 justify-center">
+            <div class="text-[15px] font-semibold">No thermostat in HomeKit</div>
+            <p class="sub mt-1 max-w-sm text-[13px]">Room temperatures still work here. Run time, cost and warm-up times appear once this side's thermostat joins HomeKit.</p>
+          </div>
+        {% endif %}
+        {% for t in z.rooms %}{% include "core/_tile.html" with t=t show_room=True %}{% endfor %}
+        {% if not z.rooms %}
+          <div class="tile justify-center"><p class="sub text-[13px]">No room sensors on this side yet. Assign one from its tile, or map a HomeKit room with Rooms.</p></div>
+        {% endif %}
+      </div>
+    </section>
+    {% endfor %}
+
+    {% if appliances or outdoor %}
+    <section id="appliances" class="mt-8">
+      <h2 class="text-[20px] font-semibold">{% if appliances %}Appliances{% else %}Outdoor{% endif %}</h2>
+      <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {% for t in outdoor %}{% include "core/_tile.html" with t=t %}{% endfor %}
+        {% for t in appliances %}{% include "core/_tile.html" with t=t %}{% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if hidden %}
+    <section class="mt-10" x-data="{ open: false }">
+      <button type="button" class="caption hover:text-white" @click="open = !open" :aria-expanded="open">
+        <span x-text="open ? 'Hide' : 'Show'"></span> {{ hidden|length }} hidden sensor{{ hidden|length|pluralize }}
+      </button>
+      <div x-show="open" x-cloak class="mt-3 grid grid-cols-2 gap-3 opacity-70 sm:grid-cols-3 lg:grid-cols-4">
+        {% for t in hidden %}{% include "core/_tile.html" with t=t %}{% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+</div>

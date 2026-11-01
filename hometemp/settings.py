@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -19,7 +20,6 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
     "django.contrib.messages",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -65,9 +65,12 @@ DATABASES = {
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STORAGES = {
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        # Tests run without collectstatic, so skip the manifest there.
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage" if "test" in sys.argv
+        else "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
 

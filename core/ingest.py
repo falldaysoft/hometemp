@@ -9,7 +9,7 @@ from datetime import datetime
 
 from django.db import transaction
 
-from .models import Accessory, Characteristic, Reading, Room, Zone
+from .models import Accessory, Characteristic, RawRecord, Reading, Room, Zone
 
 SOURCES = {"event": Reading.Source.EVENT, "heartbeat": Reading.Source.HEARTBEAT, "initial": Reading.Source.INITIAL}
 
@@ -28,11 +28,12 @@ def numeric(v):
 
 
 class Ingestor:
-    def __init__(self):
+    def __init__(self, device=None):
+        self.device = device
         self.rooms = {}
         self.accessories = {}
         self.characteristics = {}
-        self.stats = {"readings": 0, "skipped": 0, "accessories": 0}
+        self.stats = {"readings": 0, "raw": 0, "skipped": 0, "accessories": 0}
         self.latest_ts = None
 
     def room(self, name):
@@ -77,8 +78,15 @@ class Ingestor:
             if ch is None:
                 acc = self.accessory(uuid.UUID(rec["accessoryUUID"]), rec.get("accessory", ""), rec.get("room"), ts,
                                      kinds=[rec["characteristic"]])
-                ch = Characteristic.objects.create(uuid=key, accessory=acc, kind=rec["characteristic"],
-                                                   unit=rec.get("unit", ""))
+                ch = Characteristic(uuid=key, accessory=acc)
+            # Newer collector builds name more characteristics and add HomeKit's own label; keep the latest.
+            fields = {"kind": rec["characteristic"][:60], "type_uuid": rec.get("characteristicType", ch.type_uuid),
+                      "description": rec.get("description", ch.description)[:100],
+                      "unit": rec.get("unit", ch.unit), "format": rec.get("format", ch.format)}
+            if ch.pk is None or any(getattr(ch, k) != v for k, v in fields.items()):
+                for k, v in fields.items():
+                    setattr(ch, k, v)
+                ch.save()
             self.characteristics[key] = ch
         return ch
 
@@ -98,20 +106,27 @@ class Ingestor:
             if acc:
                 acc.reachable = bool(rec.get("reachable"))
                 acc.save(update_fields=["reachable"])
-        elif kind == "value":
+        if kind == "value":
             value = numeric(rec.get("value"))
-            if value is None or str(rec.get("characteristic", "")).startswith("000000"):
-                self.stats["skipped"] += 1  # non-numeric, or a pre-mapping raw-UUID row from early spike builds
+            if str(rec.get("characteristic", "")).startswith("000000") and "description" not in rec:
+                self.stats["skipped"] += 1  # pre-mapping raw-UUID row from early spike builds; superseded
                 return
             ch = self.characteristic(rec, ts)
-            self.pending.append(Reading(characteristic=ch, ts=ts, value=value,
-                                        source=SOURCES.get(rec.get("source"), Reading.Source.EVENT)))
+            if value is not None:
+                self.pending.append(Reading(characteristic=ch, ts=ts, value=value,
+                                            source=SOURCES.get(rec.get("source"), Reading.Source.EVENT)))
+                return
+        # Everything that isn't a numeric reading is archived verbatim.
+        if ts is not None:
+            self.raw.append(RawRecord(ts=ts, type=str(kind)[:40], data=rec, digest=RawRecord.digest_of(rec), device=self.device))
 
     def ingest(self, records):
         self.pending = []
+        self.raw = []
         with transaction.atomic():
             for rec in records:
                 self.add(rec)
             created = Reading.objects.bulk_create(self.pending, ignore_conflicts=True, batch_size=1000)
             self.stats["readings"] += len(created)  # includes duplicates ignored by the DB
+            self.stats["raw"] += len(RawRecord.objects.bulk_create(self.raw, ignore_conflicts=True, batch_size=500))
         return self.stats

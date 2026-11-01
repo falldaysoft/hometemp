@@ -28,7 +28,7 @@ def ingest(request):
     if len(records) > MAX_RECORDS:
         return JsonResponse({"error": f"at most {MAX_RECORDS} records per request"}, status=413)
 
-    ing = Ingestor()
+    ing = Ingestor(device)
     try:
         stats = ing.ingest(records)
     except (KeyError, ValueError, TypeError) as e:

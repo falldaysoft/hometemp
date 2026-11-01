@@ -1,0 +1,145 @@
+/* HomeTemp — Apple Home's visual language, with the back panel off. */
+:root {
+  --dusk-top: #16202c;
+  --dusk-bottom: #2b3a4d;
+  --glass: rgba(30, 32, 38, 0.55);
+  --glass-hi: rgba(255, 255, 255, 0.08);
+  --lit: rgba(242, 242, 247, 0.94);
+  --ink: #1c1c1e;
+  --heat: #ff9f0a;
+  --cool: #5ac8fa;
+  --ok: #30d158;
+  --warn: #ffd60a;
+  --sheet: rgba(28, 28, 30, 0.86);
+  --group: rgba(255, 255, 255, 0.07);
+  --hair: rgba(255, 255, 255, 0.09);
+  --text: #fff;
+  --text-2: rgba(235, 235, 245, 0.62);
+  --text-3: rgba(235, 235, 245, 0.38);
+  --round: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, sans-serif;
+}
+
+html { background: var(--dusk-top); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  background: var(--dusk-top);
+}
+/* Fixed wallpaper layer (background-attachment: fixed is unreliable on iOS). */
+.wallpaper {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(90% 60% at 15% 0%, rgba(120, 150, 190, 0.28), transparent 60%),
+    radial-gradient(70% 50% at 100% 30%, rgba(80, 90, 140, 0.25), transparent 65%),
+    linear-gradient(180deg, #16202c 0%, #22303f 45%, #33435a 100%);
+}
+
+/* The wallpaper reflects the house: a warm glow rises while any furnace runs, a cool one for AC. */
+.glow { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0; transition: opacity 2.4s ease; }
+.glow-heating { opacity: 1; background: radial-gradient(120% 70% at 50% 115%, rgba(255, 140, 20, 0.55), rgba(255, 110, 40, 0.12) 55%, transparent 75%); }
+.glow-cooling { opacity: 1; background: radial-gradient(120% 70% at 50% 115%, rgba(90, 200, 250, 0.45), rgba(60, 140, 255, 0.1) 55%, transparent 75%); }
+.page { position: relative; z-index: 1; }
+
+.num { font-family: var(--round); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+/* Tiles */
+.tile {
+  position: relative; display: flex; flex-direction: column; text-align: left; width: 100%;
+  min-height: 132px; padding: 14px 14px 10px; border-radius: 22px;
+  background: var(--glass); color: var(--text);
+  -webkit-backdrop-filter: blur(28px) saturate(170%); backdrop-filter: blur(28px) saturate(170%);
+  box-shadow: inset 0 0 0 0.5px var(--glass-hi);
+  transition: transform 0.15s ease, background 0.4s ease;
+}
+.tile:active { transform: scale(0.97); }
+.tile:focus-visible, .pill:focus-visible, .btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.tile.lit { background: var(--lit); color: var(--ink); box-shadow: none; }
+.tile.review { background: rgba(30, 32, 38, 0.35); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.28); }
+.tile .sub { color: var(--text-2); }
+.tile.lit .sub { color: rgba(60, 60, 67, 0.7); }
+.tile .spark { stroke: rgba(255, 255, 255, 0.55); }
+.tile.lit .spark { stroke: rgba(28, 28, 30, 0.45); }
+
+.icon-disc {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14); color: #fff;
+}
+.lit .icon-disc { background: rgba(28, 28, 30, 0.08); color: var(--ink); }
+.icon-disc.heating { background: var(--heat); color: #fff; }
+.icon-disc.cooling { background: var(--cool); color: #fff; }
+
+.fresh { width: 7px; height: 7px; border-radius: 999px; background: var(--ok); }
+.fresh.stale { background: var(--warn); }
+
+/* Status pills under the title, like Home's climate/security summary */
+.pill {
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+  padding: 7px 14px 7px 8px; border-radius: 999px; font-size: 13px;
+  background: var(--glass); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+  box-shadow: inset 0 0 0 0.5px var(--glass-hi);
+}
+.pill b { font-weight: 600; }
+.pill .sub { color: var(--text-2); }
+.pill.alert { background: rgba(255, 214, 10, 0.18); box-shadow: inset 0 0 0 0.5px rgba(255, 214, 10, 0.5); }
+.pill-icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: rgba(255,255,255,.14); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px; white-space: nowrap;
+  font-size: 14px; font-weight: 500; background: var(--glass); color: #fff;
+  -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); box-shadow: inset 0 0 0 0.5px var(--glass-hi);
+}
+.btn:hover { background: rgba(60, 62, 70, 0.6); }
+
+/* Sheet */
+dialog.sheet {
+  width: min(560px, 100vw); max-height: min(92vh, 900px); margin: auto auto 0; padding: 0;
+  border: 0; border-radius: 28px 28px 0 0; color: var(--text); background: var(--sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+@media (min-width: 640px) { dialog.sheet { margin: auto; border-radius: 28px; } }
+dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.35); }
+dialog.sheet[open] { animation: sheet-in 0.28s cubic-bezier(0.2, 0.9, 0.25, 1); }
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
+
+.group { background: var(--group); border-radius: 14px; overflow: hidden; }
+.group > * + * { border-top: 0.5px solid var(--hair); }
+.row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 11px 16px; }
+.row .k { color: var(--text); }
+.row .v { color: var(--text-2); text-align: right; }
+.caption { color: var(--text-2); font-size: 13px; }
+.section-label { color: var(--text-2); font-size: 13px; margin: 22px 16px 7px; }
+
+.seg { display: flex; padding: 2px; border-radius: 10px; background: rgba(118, 118, 128, 0.24); }
+.seg label { flex: 1; text-align: center; font-size: 13px; padding: 6px 4px; border-radius: 8px; cursor: pointer; color: var(--text); }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg input:checked + span { display: block; }
+.seg label:has(input:checked) { background: rgba(99, 99, 102, 0.9); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2); font-weight: 600; }
+.seg label:has(input:focus-visible) { outline: 2px solid #fff; }
+
+.field { background: rgba(118, 118, 128, 0.24); border-radius: 10px; padding: 7px 10px; color: #fff; border: 0; }
+.field:focus { outline: 2px solid rgba(255, 255, 255, 0.7); }
+select.field option { color: #000; }
+
+.primary { background: #fff; color: var(--ink); font-weight: 600; border-radius: 12px; padding: 11px 16px; width: 100%; }
+.primary:hover { background: #e9e9ee; }
+
+.chart .temp { fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .set { fill: none; stroke: var(--heat); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.chart .band-heating { fill: rgba(255, 159, 10, 0.28); }
+.chart .band-cooling { fill: rgba(90, 200, 250, 0.28); }
+.chart .grid { stroke: var(--hair); }
+.chart text { fill: var(--text-3); font-size: 11px; }
+
+.scroll-x { overflow-x: auto; scrollbar-width: none; }
+.scroll-x::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .glow, .tile, dialog.sheet[open] { transition: none; animation: none; }
+}
+
+[x-cloak] { display: none !important; }

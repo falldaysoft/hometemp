@@ -6,4 +6,7 @@ urlpatterns = [
     path("", views.index, name="index"),
     path("health/", views.health, name="health"),
     path("api/ingest", api.ingest, name="ingest"),
+    path("accessory/<int:pk>/", views.accessory, name="accessory"),
+    path("accessory/<int:pk>/update/", views.accessory_update, name="accessory_update"),
+    path("rooms/", views.rooms, name="rooms"),
 ]

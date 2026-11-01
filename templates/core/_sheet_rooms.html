@@ -1,0 +1,25 @@
+<div class="max-h-[92vh] overflow-y-auto px-4 pb-6 pt-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-[17px] font-semibold">Rooms</div>
+      <div class="caption">Which side of the house each HomeKit room belongs to</div>
+    </div>
+    <form method="dialog"><button class="grid h-8 w-8 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Close">{% include "core/_icon.html" with name="close" %}</button></form>
+  </div>
+  <div class="group mt-5">
+    {% for room in rooms %}
+    <form class="flex items-center justify-between gap-3 px-4 py-2.5" hx-post="{% url 'rooms' %}" hx-trigger="change" hx-target="#sheet-body">
+      {% csrf_token %}<input type="hidden" name="room" value="{{ room.pk }}">
+      <div class="min-w-0">
+        <div class="truncate">{{ room.name }}</div>
+        <div class="text-[12px] text-[var(--text-3)]">{% with n=counts|get_item:room.pk %}{{ n|default:0 }} accessor{{ n|default:0|pluralize:"y,ies" }}{% endwith %}</div>
+      </div>
+      <div class="seg w-48 shrink-0">
+        {% for z in zones %}<label><input type="radio" name="zone" value="{{ z.pk }}" {% if room.zone_id == z.pk %}checked{% endif %}>{{ z.name }}</label>{% endfor %}
+        <label><input type="radio" name="zone" value="" {% if not room.zone_id %}checked{% endif %}>Neither</label>
+      </div>
+    </form>
+    {% endfor %}
+  </div>
+  <p class="caption mt-3 px-1">Rooms on neither side (outside, the garage) don't count toward either zone. You can still move a single accessory to a different room from its own page.</p>
+</div>

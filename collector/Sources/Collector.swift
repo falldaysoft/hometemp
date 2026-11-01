@@ -51,7 +51,20 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
         HMCharacteristicTypeVolatileOrganicCompoundDensity: "vocDensity",
     ]
 
+    /// Static accessory-information characteristics: already in the inventory record, never change.
+    static let staticInfo: Set<String> = [
+        "00000014", "00000020", "00000021", "00000023", "00000030", "00000052", "00000053", "00000054", "000000A6",
+    ].reduce(into: []) { $0.insert("\($1)-0000-1000-8000-0026BB765291") }
+
+    /// Record everything readable; more data keeps future views possible.
+    static func records(_ c: HMCharacteristic) -> Bool {
+        !staticInfo.contains(c.characteristicType) && c.properties.contains(HMCharacteristicPropertyReadable)
+    }
+
+    static func kindName(_ c: HMCharacteristic) -> String { interesting[c.characteristicType] ?? c.characteristicType }
+
     private let manager = HMHomeManager()
+    let uploader = Uploader()
     private let log = Logger(subsystem: "ca.fallday.hometemp.collector", category: "collector")
     private let writer = JSONLWriter()
     private var heartbeat: Timer?
@@ -99,6 +112,7 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
         }
         status = "\(manager.homes.count) home(s), \(rows.count) characteristics. Log: \(writer.directory.path)"
         startHeartbeat()
+        uploader.start(directory: writer.directory)
     }
 
     // MARK: HMHomeDelegate (topology changes)
@@ -134,10 +148,11 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
     private func attach(_ accessory: HMAccessory, in home: HMHome) {
         accessory.delegate = self
         for service in accessory.services {
-            for c in service.characteristics where Self.interesting[c.characteristicType] != nil {
+            for c in service.characteristics where Self.records(c) {
                 let id = c.uniqueIdentifier.uuidString
                 rows[id] = rows[id] ?? Row(id: id, room: accessory.room?.name ?? "—", accessory: accessory.name,
-                                           kind: Self.interesting[c.characteristicType]!, value: "…", events: 0)
+                                           kind: Self.interesting[c.characteristicType] ?? c.localizedDescription,
+                                           value: "…", events: 0)
                 c.readValue { [weak self] error in
                     DispatchQueue.main.async {
                         if let error { self?.recordError("read", c, accessory, error) }
@@ -162,7 +177,8 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
         }
     }
 
-    /// Snapshot of last-known (cached) values; lets the server tell "no change" from "collector down".
+    /// Snapshot of last-known (cached) climate values; lets the server tell "no change" from "collector down".
+    /// Limited to the curated set so repeats of every light and switch don't swamp the database.
     private func beat() {
         lastHeartbeat = Date()
         for home in manager.homes {
@@ -177,7 +193,7 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
     }
 
     private func recordValue(_ c: HMCharacteristic, of accessory: HMAccessory, source: String) {
-        let kind = Self.interesting[c.characteristicType] ?? c.characteristicType
+        let kind = Self.interesting[c.characteristicType] ?? c.localizedDescription
         var entry = base(c, accessory)
         entry["type"] = "value"
         entry["source"] = source
@@ -213,9 +229,12 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
             "room": accessory.room?.name ?? "",
             "service": c.service?.serviceType ?? "",
             "serviceName": c.service?.name ?? "",
-            "characteristic": Self.interesting[c.characteristicType] ?? c.characteristicType,
+            "characteristic": Self.kindName(c),
+            "characteristicType": c.characteristicType,
+            "description": c.localizedDescription,
             "characteristicUUID": c.uniqueIdentifier.uuidString,
             "unit": c.metadata?.units ?? "",
+            "format": c.metadata?.format ?? "",
         ]
     }
 

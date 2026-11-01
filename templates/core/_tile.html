@@ -1,0 +1,41 @@
+{% load hometemp %}
+<button type="button" class="tile {% if t.active %}lit{% endif %} {% if review %}review{% endif %} {% if wide %}col-span-2{% endif %}"
+        hx-get="{% url 'accessory' t.acc.pk %}" hx-target="#sheet-body" hx-swap="innerHTML"
+        aria-label="{{ t.acc.name }}, {{ t.temp|temp }}">
+  <div class="flex w-full items-start justify-between">
+    <span class="icon-disc {{ t.state }}">{% include "core/_icon.html" with name=t.icon %}</span>
+    <span class="flex items-center gap-1.5 text-[11px] sub" title="Last update {{ t.seen|date:'D j M, g:i:s a' }}">
+      {{ t.seen|ago }}<span class="fresh {% if t.stale %}stale{% endif %}"></span>
+    </span>
+  </div>
+  {% if wide %}
+  <div class="mt-3 flex w-full items-end justify-between gap-4">
+    <div class="min-w-0">
+      <div class="truncate text-[15px] font-semibold leading-tight">{{ t.acc.name }}</div>
+      <div class="sub text-[13px] leading-snug">
+        {% if t.state == "heating" %}Heating to {{ t.heat_to|temp }}{% elif t.state == "cooling" %}Cooling to {{ t.cool_to|temp }}{% elif t.state == "off" %}Off{% else %}Idle{% if t.heat_to is not None %}, heat to {{ t.heat_to|temp }}{% endif %}{% endif %}
+      </div>
+      <div class="sub text-[12px] leading-snug">{{ t.mode }} mode{% if t.cool_to is not None %}, cool to {{ t.cool_to|temp }}{% endif %}</div>
+    </div>
+    <div class="num text-[44px] font-semibold leading-none">{{ t.temp|temp }}</div>
+  </div>
+  {% else %}
+  <div class="mt-2.5 min-w-0">
+    <div class="truncate text-[15px] font-semibold leading-tight">{% if show_room %}{{ t.room_name }}{% else %}{{ t.acc.name }}{% endif %}</div>
+    <div class="sub truncate text-[12px] leading-snug">{% if show_room %}{{ t.acc.name }}{% else %}{{ t.room_name }}{% endif %}</div>
+  </div>
+  <div class="mt-auto flex w-full items-end justify-between gap-2 pt-2">
+    <div class="num text-[26px] font-semibold leading-none">{{ t.temp|temp }}</div>
+    <div class="sub text-right text-[11px] leading-tight">
+      {% if t.delta is not None %}<div class="num">{{ t.delta|signed }} vs thermostat</div>{% endif %}
+      {% if t.humidity is not None %}<div class="num">{{ t.humidity|floatformat:0 }}% humidity</div>{% endif %}
+      {% if t.co2 is not None %}<div class="num">{{ t.co2|floatformat:0 }} ppm CO₂</div>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+  {% if t.spark %}
+  <svg class="mt-2 w-full" viewBox="0 -2 100 32" height="{% if wide %}34{% else %}22{% endif %}" preserveAspectRatio="none" aria-hidden="true">
+    <path class="spark" d="{{ t.spark }}" fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+  </svg>
+  {% endif %}
+</button>

@@ -1,0 +1,7 @@
+.git
+.env
+.venv
+collector
+*.sqlite3
+staticfiles
+__pycache__

@@ -1,0 +1,42 @@
+# hometemp.fallday.ca on the Oracle VM (ovm.fallday.ca), behind Traefik on infra-network.
+#
+# This file is the source of truth; copy it to ~/apps/hometemp/ on the VM
+# when it changes. .env there holds SECRET_KEY, DB_PASSWORD and IMAGE_TAG (set
+# by deploy.sh from CI). Postgres is the shared `postgres` container on
+# infra-network; the `hometemp` role and database live there. Migrations
+# run on container start.
+#
+# Usage:
+#   docker compose pull && docker compose up -d
+
+services:
+  web:
+    image: ghcr.io/falldaysoft/hometemp:${IMAGE_TAG:-latest}
+    container_name: hometemp-web
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://hometemp:${DB_PASSWORD}@postgres:5432/hometemp
+      SECRET_KEY: ${SECRET_KEY}
+    networks:
+      - infra-network
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn hometemp.wsgi:application --bind 0.0.0.0:8080 --workers 2 --timeout 30 --no-control-socket"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8080/health/', headers={'Host': 'hometemp.fallday.ca'}), timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.hometemp.rule=Host(`hometemp.fallday.ca`)"
+      - "traefik.http.routers.hometemp.entrypoints=websecure"
+      - "traefik.http.routers.hometemp.tls=true"
+      - "traefik.http.routers.hometemp.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.hometemp.middlewares=compress@file"
+      - "traefik.http.services.hometemp.loadbalancer.server.port=8080"
+
+networks:
+  infra-network:
+    external: true

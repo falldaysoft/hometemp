@@ -1,0 +1,61 @@
+{% load hometemp %}
+<div class="max-h-[92vh] overflow-y-auto px-4 pb-6 pt-4">
+  <div class="flex items-center gap-3">
+    <span class="icon-disc">{% include "core/_icon.html" with name="outdoor" %}</span>
+    <div class="min-w-0 flex-1">
+      <div class="truncate text-[17px] font-semibold">Outside</div>
+      <div class="caption truncate">{{ o.place }}</div>
+    </div>
+    <form method="dialog"><button class="grid h-8 w-8 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Close">{% include "core/_icon.html" with name="close" %}</button></form>
+  </div>
+
+  <div class="mt-5 flex items-end justify-between px-1">
+    <div class="num text-[56px] font-semibold leading-none">{{ o.temp|temp }}</div>
+    <div class="text-right">
+      <div class="text-[15px] font-semibold">{{ o.summary|default:"" }}</div>
+      {% if o.high is not None %}<div class="caption num">Today {{ o.low|temp }} to {{ o.high|temp }}</div>{% endif %}
+      <div class="caption">Updated {{ o.now.ts|ago }}</div>
+    </div>
+  </div>
+
+  {% if chart %}
+  <div class="mt-5 flex items-center justify-between px-1">
+    <div class="caption">{% if hours == 24 %}Past day and next day{% else %}Past week and next 3 days{% endif %}</div>
+    <div class="seg w-36">
+      <label><input type="radio" name="range" {% if hours == 24 %}checked{% endif %} hx-get="{% url 'outdoor' %}" hx-target="#sheet-body" hx-trigger="change">24 h</label>
+      <label><input type="radio" name="range" {% if hours != 24 %}checked{% endif %} hx-get="{% url 'outdoor' %}?range=week" hx-target="#sheet-body" hx-trigger="change">7 days</label>
+    </div>
+  </div>
+  <div class="group mt-2 p-3">
+    <svg class="chart w-full" viewBox="-28 -8 {{ chart.w|add:36 }} {{ chart.h|add:28 }}" role="img" aria-label="Outdoor temperature, actual and forecast">
+      <line class="grid" x1="0" x2="{{ chart.w }}" y1="{{ chart.y_hi }}" y2="{{ chart.y_hi }}"/>
+      <line class="grid" x1="0" x2="{{ chart.w }}" y1="{{ chart.y_lo }}" y2="{{ chart.y_lo }}"/>
+      {% if chart.zero is not None %}<line x1="0" x2="{{ chart.w }}" y1="{{ chart.zero }}" y2="{{ chart.zero }}" stroke="rgba(90,200,250,.35)" stroke-dasharray="2 3"/>{% endif %}
+      <line x1="{{ chart.now_x }}" x2="{{ chart.now_x }}" y1="0" y2="{{ chart.h }}" stroke="rgba(255,255,255,.25)"/>
+      <text x="-6" y="{{ chart.y_hi }}" text-anchor="end" dominant-baseline="middle">{{ chart.hi|floatformat:0 }}°</text>
+      <text x="-6" y="{{ chart.y_lo }}" text-anchor="end" dominant-baseline="middle">{{ chart.lo|floatformat:0 }}°</text>
+      {% for tick in chart.ticks %}<text x="{{ tick.x }}" y="{{ chart.h|add:16 }}" text-anchor="middle">{{ tick.label }}</text>{% endfor %}
+      {% if chart.forecast %}<path d="{{ chart.forecast }}" fill="none" stroke="#5ac8fa" stroke-width="2" stroke-dasharray="5 4"/>{% endif %}
+      {% if chart.actual %}<path class="temp" d="{{ chart.actual }}"/>{% endif %}
+    </svg>
+    <div class="mt-1 flex flex-wrap gap-x-4 px-1 text-[12px] text-[var(--text-2)]">
+      <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-white"></span>Actual</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block w-4 border-t-2 border-dashed border-[#5ac8fa]"></span>Forecast{% if issued %}, issued {{ issued|ago }}{% endif %}</span>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="section-label">Right now</div>
+  <div class="group">
+    {% for r in rows %}<div class="row"><span class="k">{{ r.label }}</span><span class="v num">{{ r.value }}</span></div>
+    {% empty %}<div class="row"><span class="caption">No readings yet. The first arrives within 15 minutes.</span></div>{% endfor %}
+  </div>
+
+  <div class="section-label">Recorded so far</div>
+  <div class="group">
+    <div class="row"><span class="k">Hourly actuals</span><span class="v num">{{ counts.actual }}</span></div>
+    <div class="row"><span class="k">Forecast snapshots</span><span class="v num">{{ counts.snapshots }}</span></div>
+    <div class="row"><span class="k">Current readings</span><span class="v num">{{ counts.current }}</span></div>
+    <div class="row"><span class="k">Source</span><span class="v">Open-Meteo forecast model</span></div>
+  </div>
+</div>

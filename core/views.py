@@ -3,8 +3,9 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_POST
 
-from .dashboard import accessory_detail, dashboard
-from .models import Accessory, Room, Zone
+from . import weather
+from .dashboard import accessory_detail, dashboard, outdoor_detail
+from .models import Accessory, HomeSettings, Room, Zone
 
 
 def health(request):
@@ -70,3 +71,44 @@ def rooms(request):
     if request.method == "POST":
         resp["HX-Trigger"] = "dashboard-changed"
     return resp
+
+
+@login_required
+def outdoor(request):
+    hours = 168 if request.GET.get("range") == "week" else 24
+    return render(request, "core/_sheet_outdoor.html", outdoor_detail(hours))
+
+
+@login_required
+def settings_sheet(request):
+    s = HomeSettings.load()
+    saved = False
+    if request.method == "POST":
+        try:
+            s.latitude = float(request.POST["latitude"])
+            s.longitude = float(request.POST["longitude"])
+        except (KeyError, ValueError):
+            pass
+        else:
+            s.place = request.POST.get("place", "")[:200]
+            s.timezone = request.POST.get("timezone", "")[:60]
+            s.save()
+            saved = True
+            try:
+                weather.fetch(s, past_days=14)  # backfill right away so the tile isn't empty
+            except Exception:
+                pass
+    resp = render(request, "core/_sheet_settings.html", {"s": s, "saved": saved})
+    if saved:
+        resp["HX-Trigger"] = "dashboard-changed"
+    return resp
+
+
+@login_required
+def place_search(request):
+    try:
+        results = weather.geocode(request.GET.get("q", ""))
+        error = None
+    except Exception:
+        results, error = [], "Couldn't reach the place search. Try again in a moment."
+    return render(request, "core/_place_results.html", {"results": results, "error": error})

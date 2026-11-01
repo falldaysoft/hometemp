@@ -37,6 +37,21 @@ services:
       - "traefik.http.routers.hometemp.middlewares=compress@file"
       - "traefik.http.services.hometemp.loadbalancer.server.port=8080"
 
+  # Fetches outdoor weather from Open-Meteo every 15 minutes (falltemp.4). Same image, no web traffic.
+  scheduler:
+    image: ghcr.io/falldaysoft/hometemp:${IMAGE_TAG:-latest}
+    container_name: hometemp-scheduler
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://hometemp:${DB_PASSWORD}@postgres:5432/hometemp
+      SECRET_KEY: ${SECRET_KEY}
+    networks:
+      - infra-network
+    depends_on:
+      web:
+        condition: service_healthy
+    command: python manage.py fetch_weather --loop 900
+
 networks:
   infra-network:
     external: true

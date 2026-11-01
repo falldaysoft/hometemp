@@ -91,3 +91,37 @@ class NowViewTests(TestCase):
         acc.refresh_from_db()
         self.assertEqual((acc.role, acc.calibration_offset), ("ignore", 0.5))
         self.assertIn("1 hidden sensor", self.client.get("/").content.decode())
+
+
+class WeatherTests(TestCase):
+    def test_store_actuals_snapshot_and_current(self):
+        from datetime import datetime, timezone as tz
+        from unittest import mock
+        from .models import HomeSettings, WeatherHour, WeatherNow
+        from . import weather
+        now = datetime(2026, 11, 1, 13, 10, tzinfo=tz.utc)
+        base = int(datetime(2026, 11, 1, 10, tzinfo=tz.utc).timestamp())
+        hours = [base + 3600 * i for i in range(8)]  # 10:00 … 17:00
+        payload = {"current": {"time": int(now.timestamp()), "interval": 900, "temperature_2m": -3.2, "weather_code": 71},
+                   "hourly": {"time": hours, "temperature_2m": [-5 + i for i in range(8)],
+                              "wind_speed_10m": [10] * 8}}
+        s = HomeSettings.load()
+        s.latitude, s.longitude, s.place = 45.4, -75.7, "Ottawa"
+        s.save()
+        with mock.patch.object(weather, "get_json", return_value=payload):
+            st1 = weather.fetch(s, now=now)
+            st2 = weather.fetch(s, now=now)
+        self.assertEqual((st1["actual"], st1["forecast"], st1["current"]), (4, 4, 1))
+        self.assertEqual(st2["forecast"], 0)  # one snapshot per 6 h slot
+        self.assertEqual(WeatherHour.objects.filter(issued=None).count(), 4)
+        self.assertEqual(WeatherHour.objects.get(issued=None, ts=datetime(2026, 11, 1, 11, tzinfo=tz.utc)).data["wind_speed_10m"], 10)
+        self.assertEqual(WeatherNow.objects.get().temperature, -3.2)
+
+        User.objects.create_user("u", password="p")
+        self.client.login(username="u", password="p")
+        with mock.patch("django.utils.timezone.now", return_value=now):
+            body = self.client.get("/").content.decode()
+            sheet = self.client.get("/outdoor/").content.decode()
+        self.assertIn("-3.2°", body)
+        self.assertIn("light snow", body)
+        self.assertIn("Forecast snapshots", sheet)

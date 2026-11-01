@@ -9,6 +9,7 @@
         <button type="button" class="btn" hx-get="{% url 'rooms' %}" hx-target="#sheet-body">
           {% include "core/_icon.html" with name="rooms" %}Rooms
         </button>
+        <button type="button" class="btn" hx-get="{% url 'settings' %}" hx-target="#sheet-body">Settings</button>
         <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn">Log out</button></form>
       </div>
     </header>
@@ -20,6 +21,10 @@
       {% else %}
       <span class="pill"><span class="pill-icon">{% include "core/_icon.html" with name="collector" %}</span>
         <span><b>Live</b> <span class="sub">updated {{ latest_reading|ago }}</span></span></span>
+      {% endif %}
+      {% if outdoor and outdoor.temp is not None %}
+      <button type="button" class="pill" hx-get="{% url 'outdoor' %}" hx-target="#sheet-body"><span class="pill-icon">{% include "core/_icon.html" with name="outdoor" %}</span>
+        <span><b>Outside</b> <span class="sub num">{{ outdoor.temp|temp }}{% if outdoor.summary %}, {{ outdoor.summary|lower }}{% endif %}</span></span></button>
       {% endif %}
       {% for z in zones %}{% if z.range %}
       <a class="pill" href="#zone-{{ z.zone.pk }}"><span class="pill-icon {% if z.thermostat.active %}icon-disc {{ z.thermostat.state }}{% endif %}">{% include "core/_icon.html" with name="thermostat" %}</span>
@@ -34,6 +39,13 @@
         <span><b>{{ review|length }} sensor{{ review|length|pluralize }}</b> <span class="sub">need{{ review|length|pluralize:"s," }} a role</span></span></a>
       {% endif %}
     </div>
+
+    {% if not outdoor %}
+    <button type="button" class="tile mt-6 !min-h-0 sm:max-w-md" hx-get="{% url 'settings' %}" hx-target="#sheet-body">
+      <div class="text-[15px] font-semibold">Add outdoor weather</div>
+      <p class="sub mt-1 text-[13px]">Set your town and HomeTemp records outdoor temperature and forecasts alongside the house.</p>
+    </button>
+    {% endif %}
 
     {% if review %}
     <section id="review" class="mt-8">
@@ -65,11 +77,37 @@
     </section>
     {% endfor %}
 
-    {% if appliances or outdoor %}
-    <section id="appliances" class="mt-8">
-      <h2 class="text-[20px] font-semibold">{% if appliances %}Appliances{% else %}Outdoor{% endif %}</h2>
+    {% if outdoor %}
+    <section id="outside" class="mt-8">
+      <h2 class="text-[20px] font-semibold">Outside</h2>
       <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-        {% for t in outdoor %}{% include "core/_tile.html" with t=t %}{% endfor %}
+        <button type="button" class="tile" hx-get="{% url 'outdoor' %}" hx-target="#sheet-body" aria-label="Outside, {{ outdoor.temp|temp }}">
+          <div class="flex w-full items-start justify-between">
+            <span class="icon-disc">{% include "core/_icon.html" with name="outdoor" %}</span>
+            <span class="flex items-center gap-1.5 text-[11px] sub">{{ outdoor.now.ts|ago }}<span class="fresh {% if outdoor.stale %}stale{% endif %}"></span></span>
+          </div>
+          <div class="mt-2.5 min-w-0">
+            <div class="truncate text-[15px] font-semibold leading-tight">{{ outdoor.summary|default:"Outside" }}</div>
+            <div class="sub truncate text-[12px] leading-snug">{{ outdoor.place }}</div>
+          </div>
+          <div class="mt-auto flex w-full items-end justify-between gap-2 pt-2">
+            <div class="num text-[26px] font-semibold leading-none">{{ outdoor.temp|temp }}</div>
+            <div class="sub text-right text-[11px] leading-tight">
+              {% if outdoor.feels is not None %}<div class="num">feels {{ outdoor.feels|temp }}</div>{% endif %}
+              {% if outdoor.high is not None %}<div class="num">{{ outdoor.low|temp }} to {{ outdoor.high|temp }}</div>{% endif %}
+            </div>
+          </div>
+          {% if outdoor.spark %}<svg class="mt-2 w-full" viewBox="0 -2 100 32" height="22" preserveAspectRatio="none" aria-hidden="true"><path class="spark" d="{{ outdoor.spark }}" fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>{% endif %}
+        </button>
+        {% for t in outdoor_sensors %}{% include "core/_tile.html" with t=t %}{% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if appliances %}
+    <section id="appliances" class="mt-8">
+      <h2 class="text-[20px] font-semibold">Appliances</h2>
+      <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {% for t in appliances %}{% include "core/_tile.html" with t=t %}{% endfor %}
       </div>
     </section>

@@ -9,4 +9,7 @@ urlpatterns = [
     path("accessory/<int:pk>/", views.accessory, name="accessory"),
     path("accessory/<int:pk>/update/", views.accessory_update, name="accessory_update"),
     path("rooms/", views.rooms, name="rooms"),
+    path("outdoor/", views.outdoor, name="outdoor"),
+    path("settings/", views.settings_sheet, name="settings"),
+    path("settings/places/", views.place_search, name="place_search"),
 ]

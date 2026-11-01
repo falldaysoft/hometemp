@@ -209,11 +209,12 @@ def dashboard(now=None):
         "zones": zones,
         "appliances": appliances,
         "appliance_range": (min(t.temp for t in appliances), max(t.temp for t in appliances)) if appliances else None,
-        "outdoor": [t for t in tiles if t.acc.role == Accessory.Role.OUTDOOR],
+        "outdoor_sensors": [t for t in tiles if t.acc.role == Accessory.Role.OUTDOOR],
         "review": [t for t in tiles if t.acc.role == Accessory.Role.UNCLASSIFIED],
         "hidden": hidden,
         "latest_reading": latest,
         "collector_stale": latest is None or now - latest > STALE_AFTER,
+        "outdoor": outdoor(now),
         "glow": "heating" if "heating" in running else ("cooling" if "cooling" in running else "none"),
         "now": now,
     }
@@ -295,3 +296,103 @@ def build_chart(temp, setpoint, bands, since, until, w=640, h=180):
         "hi": hi - 0.5, "lo": lo + 0.5, "y_hi": y(hi - 0.5), "y_lo": y(lo + 0.5),
         "run_minutes": round(run_seconds / 60), "cycles": len(bands),
     }
+
+
+WMO = {0: "Clear", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast", 45: "Fog", 48: "Freezing fog",
+       51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle", 56: "Freezing drizzle", 57: "Freezing drizzle",
+       61: "Light rain", 63: "Rain", 65: "Heavy rain", 66: "Freezing rain", 67: "Freezing rain",
+       71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains", 80: "Showers", 81: "Showers",
+       82: "Heavy showers", 85: "Snow showers", 86: "Heavy snow showers", 95: "Thunderstorm",
+       96: "Thunderstorm, hail", 99: "Thunderstorm, hail"}
+
+WEATHER_LABELS = [
+    ("temperature_2m", "Temperature", "°"), ("apparent_temperature", "Feels like", "°"),
+    ("relative_humidity_2m", "Humidity", "%"), ("dew_point_2m", "Dew point", "°"),
+    ("wind_speed_10m", "Wind", " km/h"), ("wind_gusts_10m", "Gusts", " km/h"),
+    ("wind_direction_10m", "Wind from", "°"), ("cloud_cover", "Cloud cover", "%"),
+    ("shortwave_radiation", "Sunlight", " W/m²"), ("precipitation", "Precipitation", " mm"),
+    ("snowfall", "Snowfall", " cm"), ("snow_depth", "Snow on the ground", " m"),
+    ("pressure_msl", "Pressure", " hPa"),
+]
+
+
+def outdoor(now=None):
+    """Current outdoor conditions plus today's range and a 24 h sparkline, or None without a location."""
+    from .models import HomeSettings, WeatherHour, WeatherNow
+    settings = HomeSettings.load()
+    if not settings.has_location:
+        return None
+    now = now or timezone.now()
+    cur = WeatherNow.objects.order_by("-ts").first()
+    since = now - timedelta(hours=24)
+    actual = list(WeatherHour.objects.filter(issued=None, ts__gte=since, ts__lte=now).order_by("ts")
+                  .values_list("ts", "temperature"))
+    day_start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    issued = WeatherHour.objects.exclude(issued=None).order_by("-issued").values_list("issued", flat=True).first()
+    today = [t for _, t in WeatherHour.objects.filter(issued=None, ts__gte=day_start, ts__lte=now)
+             .values_list("ts", "temperature") if t is not None]
+    today += [t for t in WeatherHour.objects.filter(issued=issued, ts__gt=now, ts__lt=day_end)
+              .values_list("temperature", flat=True) if t is not None]
+    return {
+        "place": settings.place, "now": cur, "temp": cur.temperature if cur else None,
+        "summary": WMO.get((cur.data or {}).get("weather_code")) if cur else None,
+        "feels": (cur.data or {}).get("apparent_temperature") if cur else None,
+        "wind": (cur.data or {}).get("wind_speed_10m") if cur else None,
+        "high": max(today) if today else None, "low": min(today) if today else None,
+        "spark": spark_path([(t, v) for t, v in actual if v is not None], since, now),
+        "stale": cur is None or now - cur.ts > timedelta(minutes=45),
+    }
+
+
+def outdoor_detail(hours=24, now=None):
+    from .models import WeatherHour, WeatherNow
+    now = now or timezone.now()
+    since = now - timedelta(hours=hours)
+    ahead = now + timedelta(hours=24 if hours == 24 else 72)
+    actual = [(t, v) for t, v in WeatherHour.objects.filter(issued=None, ts__gte=since, ts__lte=now)
+              .order_by("ts").values_list("ts", "temperature") if v is not None]
+    issued = WeatherHour.objects.exclude(issued=None).order_by("-issued").values_list("issued", flat=True).first()
+    forecast = [(t, v) for t, v in WeatherHour.objects.filter(issued=issued, ts__gt=now, ts__lte=ahead)
+                .order_by("ts").values_list("ts", "temperature") if v is not None]
+    if actual and forecast:
+        forecast = [actual[-1]] + forecast
+    chart = None
+    if len(actual) + len(forecast) >= 2:
+        vals = [v for _, v in actual + forecast]
+        lo, hi = min(vals) - 1, max(vals) + 1
+        w, h = 640, 180
+        span = (ahead - since).total_seconds()
+        x = lambda t: w * (t - since).total_seconds() / span
+        y = lambda v: h - h * (v - lo) / (hi - lo)
+        path = lambda pts: ("M" + " L".join(f"{x(t):.1f},{y(v):.1f}" for t, v in pts)) if len(pts) > 1 else ""
+        ticks, t = [], since.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        stride = 6 if hours == 24 else 24
+        while t < ahead:
+            lt = timezone.localtime(t)
+            if lt.hour % stride == 0:
+                ticks.append({"x": x(t), "label": lt.strftime("%-I %p").lower() if stride < 24 else lt.strftime("%a")})
+            t += timedelta(hours=1)
+        zero = y(0) if lo < 0 < hi else None
+        chart = {"w": w, "h": h, "actual": path(actual), "forecast": path(forecast), "now_x": x(now),
+                 "ticks": ticks, "hi": hi - 1, "lo": lo + 1, "y_hi": y(hi - 1), "y_lo": y(lo + 1), "zero": zero}
+    cur = WeatherNow.objects.order_by("-ts").first()
+    rows = []
+    if cur:
+        for key, label, unit in WEATHER_LABELS:
+            v = (cur.data or {}).get(key)
+            if v is None:
+                continue
+            if key == "wind_direction_10m":
+                points = "N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW".split()
+                value = f"{points[round(v / 22.5) % 16]} ({v:.0f}°)"
+            else:
+                value = f"{v:.1f}{unit}" if unit == "°" else f"{v:g}{unit}"
+            rows.append({"label": label, "value": value})
+        code = (cur.data or {}).get("weather_code")
+        if code is not None:
+            rows.insert(0, {"label": "Conditions", "value": f"{WMO.get(code, 'Unknown')} ({code})"})
+    return {"o": outdoor(now), "chart": chart, "rows": rows, "hours": hours, "issued": issued,
+            "counts": {"actual": WeatherHour.objects.filter(issued=None).count(),
+                       "snapshots": WeatherHour.objects.exclude(issued=None).values("issued").distinct().count(),
+                       "current": WeatherNow.objects.count()}}

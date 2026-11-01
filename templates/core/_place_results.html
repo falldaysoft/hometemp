@@ -1,0 +1,15 @@
+{% if error %}<p class="caption">{{ error }}</p>{% endif %}
+{% if results %}
+<div class="overflow-hidden rounded-xl bg-white/5">
+  {% for r in results %}
+  <form hx-post="{% url 'settings' %}" hx-target="#sheet-body" class="border-t border-white/5 first:border-0">
+    {% csrf_token %}
+    <input type="hidden" name="latitude" value="{{ r.latitude }}">
+    <input type="hidden" name="longitude" value="{{ r.longitude }}">
+    <input type="hidden" name="place" value="{{ r.label }}">
+    <input type="hidden" name="timezone" value="{{ r.timezone }}">
+    <button class="w-full px-3 py-2.5 text-left hover:bg-white/10">{{ r.label }}</button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}

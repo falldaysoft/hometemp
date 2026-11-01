@@ -155,3 +155,53 @@ class CollectorDevice(models.Model):
         token = secrets.token_urlsafe(32)
         cls.objects.update_or_create(name=name, defaults={"token_hash": cls.hash_token(token)})
         return token
+
+
+class HomeSettings(models.Model):
+    """Singleton (pk=1). Location lives here, not in the public repo."""
+
+    place = models.CharField(max_length=200, blank=True)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    timezone = models.CharField(max_length=60, blank=True)
+
+    @classmethod
+    def load(cls):
+        return cls.objects.get_or_create(pk=1)[0]
+
+    @property
+    def has_location(self):
+        return self.latitude is not None and self.longitude is not None
+
+
+WEATHER_FIELDS = [
+    "temperature_2m", "relative_humidity_2m", "dew_point_2m", "apparent_temperature", "precipitation", "snowfall",
+    "weather_code", "cloud_cover", "pressure_msl", "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m",
+    "shortwave_radiation", "snow_depth",
+]
+
+
+class WeatherHour(models.Model):
+    """Hourly outdoor weather from Open-Meteo. issued=None is the best-known actual for that hour;
+    otherwise a forecast snapshot issued at that time (kept so forecasts can be scored later)."""
+
+    ts = models.DateTimeField()
+    issued = models.DateTimeField(null=True, blank=True)
+    temperature = models.FloatField(null=True)
+    data = models.JSONField(default=dict, help_text="All variables Open-Meteo returned for this hour")
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["ts"], condition=models.Q(issued__isnull=True), name="weather_actual"),
+            models.UniqueConstraint(fields=["ts", "issued"], name="weather_forecast"),
+        ]
+        indexes = [models.Index(fields=["issued", "ts"])]
+
+
+class WeatherNow(models.Model):
+    """Open-Meteo 'current' conditions, recorded every fetch (15 min)."""
+
+    ts = models.DateTimeField(unique=True)
+    temperature = models.FloatField(null=True)
+    data = models.JSONField(default=dict)

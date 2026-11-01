@@ -254,6 +254,9 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
 
     private func jsonValue(_ v: Any?) -> Any {
         switch v {
+        // HomeKit sometimes hands back enum states as CFBoolean (e.g. CurrentHeaterCoolerState
+        // arrived as `false` instead of 0); normalize so every state is numeric.
+        case let n as NSNumber where CFGetTypeID(n) == CFBooleanGetTypeID(): return n.boolValue ? 1 : 0
         case let n as NSNumber: return n
         case let s as String: return s
         case nil: return NSNull()

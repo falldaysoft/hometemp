@@ -20,6 +20,8 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>LSUIElement</key>
+	<true/>
 	<key>NSHomeKitUsageDescription</key>
 	<string>HomeTemp records temperatures and thermostat state so you can chart heating and cooling over time.</string>
 	<key>UIApplicationSceneManifest</key>

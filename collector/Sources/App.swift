@@ -7,6 +7,21 @@ struct HomeTempCollectorApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(collector: collector, uploader: collector.uploader)
+                .onAppear(perform: closeIfBackground)
+        }
+    }
+}
+
+/// Launched by the LaunchAgent with `--background`: close the launch window and keep running windowless.
+/// (Multiple-scene support keeps a Catalyst app alive with no windows; verified in falltemp.1.)
+/// Open the app again (e.g. `open -a HomeTempCollector`) to get the status window back.
+private var closedLaunchWindow = false
+private func closeIfBackground() {
+    guard !closedLaunchWindow, CommandLine.arguments.contains("--background") else { return }
+    closedLaunchWindow = true
+    DispatchQueue.main.async {
+        for session in UIApplication.shared.openSessions {
+            UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
         }
     }
 }

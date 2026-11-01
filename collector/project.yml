@@ -20,6 +20,7 @@ targets:
         CFBundleDisplayName: HomeTemp Collector
         NSHomeKitUsageDescription: "HomeTemp records temperatures and thermostat state so you can chart heating and cooling over time."
         UILaunchScreen: {}
+        LSUIElement: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
     entitlements:

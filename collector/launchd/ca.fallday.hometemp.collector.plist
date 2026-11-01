@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ca.fallday.hometemp.collector</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>APP_PATH/Contents/MacOS/HomeTempCollector</string>
+        <string>--background</string>
+    </array>
+    <!-- HomeKit only works in the logged-in user's GUI session. -->
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Restart after a crash or quit. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/hometemp-collector.log</string>
+</dict>
+</plist>

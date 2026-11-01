@@ -4,9 +4,15 @@
 <dict>
     <key>Label</key>
     <string>ca.fallday.hometemp.collector</string>
+    <!-- Launch through LaunchServices: HomeKit refuses reads from a binary exec'd directly by launchd.
+         -W keeps open running until the app quits, so KeepAlive restarts it. -->
     <key>ProgramArguments</key>
     <array>
-        <string>APP_PATH/Contents/MacOS/HomeTempCollector</string>
+        <string>/usr/bin/open</string>
+        <string>-W</string>
+        <string>-a</string>
+        <string>APP_PATH</string>
+        <string>--args</string>
         <string>--background</string>
     </array>
     <!-- HomeKit only works in the logged-in user's GUI session. -->

@@ -30,7 +30,9 @@ private var closedLaunchWindow = false
 private func closeIfBackground() {
     guard !closedLaunchWindow, CommandLine.arguments.contains("--background") else { return }
     closedLaunchWindow = true
-    DispatchQueue.main.async {
+    // Wait for the launch reads to finish first: HomeKit fails reads that are in flight when the app drops to
+    // the background (with a misleading "Missing entitlement for API" error).
+    DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
         for session in UIApplication.shared.openSessions {
             UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
         }

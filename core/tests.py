@@ -232,3 +232,23 @@ class SettingsSaveTests(TestCase):
         s.refresh_from_db()
         self.assertFalse(s.location_changed)
         self.assertIsNotNone(s.weather_fetched_at)
+
+
+class SheetSmokeTests(TestCase):
+    """Every page and sheet renders, and the dashboard's tiles don't inherit #dash's outerHTML swap
+    (that silently replaced #sheet-body and broke every save inside a sheet)."""
+
+    def test_all_sheets_render(self):
+        token = CollectorDevice.issue("t")
+        self.client.post("/api/ingest", json.dumps({"records": [INVENTORY]}), content_type="application/json",
+                         headers={"Authorization": f"Bearer {token}"})
+        User.objects.create_user("u", password="p")
+        self.client.login(username="u", password="p")
+        acc = Accessory.objects.first()
+        for url in ["/", "/rooms/", "/settings/", "/history/", "/history/?range=week", "/cost/", "/cost/?range=month",
+                    "/outdoor/", f"/accessory/{acc.pk}/", f"/accessory/{acc.pk}/?range=week"]:
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        from .models import Room, Zone
+        r = self.client.post("/rooms/", {"room": Room.objects.first().pk, "zone": Zone.objects.first().pk})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('hx-disinherit="*"', self.client.get("/").content.decode())

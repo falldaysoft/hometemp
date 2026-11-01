@@ -30,13 +30,22 @@ def every(seconds):
     return f"every {seconds / 3600:.1f} h"
 
 
+def _num(v):
+    try:
+        return None if v is None or v == "" else float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 @register.filter
 def temp(v):
+    v = _num(v)
     return "—" if v is None else f"{v:.1f}°"
 
 
 @register.filter
 def signed(v):
+    v = _num(v)
     return "" if v is None else f"{'+' if v > 0 else '−' if v < 0 else '±'}{abs(v):.1f}°"
 
 

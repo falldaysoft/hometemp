@@ -1,5 +1,5 @@
 {% load hometemp %}
-<div id="dash" hx-get="{% url 'index' %}" hx-trigger="every 60s, dashboard-changed from:body" hx-swap="outerHTML">
+<div id="dash" hx-get="{% url 'index' %}" hx-trigger="every 60s, dashboard-changed from:body" hx-swap="outerHTML" hx-disinherit="*">
   <div id="glow" class="glow glow-{{ glow }}"></div>
   <div class="page mx-auto max-w-6xl px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
 

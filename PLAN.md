@@ -14,6 +14,28 @@ Lives at **https://hometemp.fallday.ca** (fdbot room: falltemp).
 6. **Forecast cost:** given tomorrow's or this week's forecast and the current schedule, what will heating or cooling cost?
 7. **What-if:** what does a nightly 3 °C setback save? Is it worth it on very cold nights? (Uses the models from 4–6.)
 
+## Zones: a split house
+
+The house has **two independent HVAC systems**, each with its own furnace, AC and thermostat:
+
+| Zone | Use | Comfort policy |
+|---|---|---|
+| **Home** (living side) | lived in every day | normal schedule, comfort matters |
+| **Office** | your work days; occasionally used for other things (guests, events) | allowed to drift to uncomfortable temperatures when idle; heated or cooled only while occupied |
+
+Today only **one thermostat is in HomeKit**. The design treats a zone as a first-class object and supports any number of them from day one:
+- Every sensor belongs to a zone, set from its HomeKit room. A zone has 0 or 1 thermostat and its own equipment and cost settings.
+- A zone without a HomeKit thermostat is **sensors-only**: temperatures and room offsets work, but run time, cost and recovery need the thermostat. Adding the second thermostat later just lights those up.
+- Every report is per zone, with a whole-house total where it makes sense (cost).
+
+**Office occupancy** is a core concept, not an afterthought:
+- Each zone has a timeline of **occupancy periods**: `work`, `other use` (guests or events), `idle`. They're inferred from the setpoint (comfort setpoint = occupied, deep setback = idle) and can be overridden or labelled by hand ("guests this weekend").
+- Questions this enables:
+  - **Pre-heat lead time:** "To have the office at 20 °C by 9:00 with −15 °C outside, start heating at 7:35." The office recovers from a much deeper setback than the living side, so this is the most useful prediction for it.
+  - **Cost by use:** what the office costs per work day, per idle day, and per "other use" event (what did hosting guests on that side cost?).
+  - **Setback depth:** how cold or hot can the office drift when idle before recovery costs more than it saves, or before it risks frozen pipes or humidity problems? Add a configurable "never below/above" safety bound and alerts.
+  - **Cross-zone coupling:** when the office is idle, does it pull heat from the living side through the shared wall? Correlate the idle office's ΔT with the living side's run time.
+
 ## Architecture
 
 ```
@@ -38,7 +60,7 @@ Lives at **https://hometemp.fallday.ca** (fdbot room: falltemp).
 - Buffer readings locally and retry on network loss, so no data is lost while ovm is down.
 
 ### Server
-- Models: Home, Room, Sensor (accessory + characteristic), Reading (sensor, ts, value; unique on sensor+ts), HvacInterval (derived: start, end, mode), WeatherHour (observed and forecast, with fetch time), CostSettings, CollectorDevice (token, last seen).
+- Models: Home, **Zone** (name, thermostat sensor nullable, comfort policy, safety bounds), Room (→ Zone), Sensor (accessory + characteristic), Reading (sensor, ts, value; unique on sensor+ts), HvacInterval (derived per zone: start, end, mode), **OccupancyPeriod** (zone, start, end, kind work/other/idle, source inferred/manual, note), WeatherHour (observed and forecast, with fetch time), **Equipment/CostSettings per zone**, CollectorDevice (token, last seen).
 - Raw readings are append-only. Everything else is derived and can be rebuilt.
 
 ### Cost model (entered by you, not inferred)
@@ -56,7 +78,8 @@ Lives at **https://hometemp.fallday.ca** (fdbot room: falltemp).
 | **v2+ (later)** | — | schedule-adherence check, coldest-room-overnight report, alerts (unusually long run, sensor offline, furnace on but temp not rising → filter or failure), CSV export, bill calibration |
 
 ## Assumptions (correct me in the room)
-- One home, one thermostat, °C, Canadian $.
+- One home, two HVAC zones (Home and Office), only one thermostat in HomeKit so far. °C, Canadian $.
+- Both zones' sensors are in the same HomeKit home, so one collector covers both.
 - An always-on Apple Silicon Mac (or a spare iPad) is available to run the collector, signed into the iCloud account that owns the Home.
 - A paid Apple developer team is available for the HomeKit entitlement.
 - Single user. Login protects the dashboard; the collector authenticates with a device token.

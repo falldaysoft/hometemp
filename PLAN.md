@@ -63,6 +63,20 @@ Today only **one thermostat is in HomeKit**. The design treats a zone as a first
 - Models: Home, **Zone** (name, thermostat sensor nullable, comfort policy, safety bounds), Room (→ Zone), Sensor (accessory + characteristic), Reading (sensor, ts, value; unique on sensor+ts), HvacInterval (derived per zone: start, end, mode), **OccupancyPeriod** (zone, start, end, kind work/other/idle, source inferred/manual, note), WeatherHour (observed and forecast, with fetch time), **Equipment/CostSettings per zone**, CollectorDevice (token, last seen).
 - Raw readings are append-only. Everything else is derived and can be rebuilt.
 
+### Sensor classification (don't trust HomeKit's grouping)
+HomeKit lumps every temperature sensor in a room together. Homebridge brings in fridge and freezer probes, so Siri says the office is "between 3 and 21 degrees." HomeKit room assignment is a hint, not the truth. Every sensor gets a **role** here:
+
+| Role | Examples | Used for |
+|---|---|---|
+| `ambient` | HomePod, Eve, Aqara room sensors, thermostat | zone and room temps, comfort, recovery, all HVAC analysis |
+| `appliance` | fridge, freezer (via Homebridge) | its own Appliances view and alerts; **never** in zone averages |
+| `outdoor` | any real outdoor sensor | compared with or substituted for Open-Meteo |
+| `ignore` | duplicates, CPU temps, junk | stored, but hidden |
+
+- New sensors arrive **unclassified** and stay out of every aggregate until you confirm them. The app suggests a role from the name ("fridge", "freezer") and from readings (a sustained < 10 °C indoor reading is never ambient).
+- Zone and room assignment can also be overridden per sensor, independently of the HomeKit room.
+- The collector records everything HomeKit exposes, including Homebridge accessories. Filtering happens on the server, so reclassifying a sensor later is retroactive.
+
 ### Cost model (entered by you, not inferred)
 - Furnace: nameplate input BTU/h, AFUE, gas price ($/m³ or $/GJ, Enbridge-style tiers optional).
 - AC: rated kW (or tonnage + SEER), electricity $/kWh (TOU optional).
@@ -75,7 +89,7 @@ Today only **one thermostat is in HomeKit**. The design treats a zone as a first
 | **1 — Collect and see** | day one | collector, ingest, live "now" view, timeline chart (rooms, thermostat, setpoint, HVAC-on shading, outdoor), per-room delta, daily run time × cost |
 | **2 — Curves** | a few days | recovery detection (setpoint step → time to within 0.5 °C), per-room lag, coast-down rate vs indoor–outdoor ΔT |
 | **3 — Predict** | a few weeks | regression of run time per hour against (setpoint − outdoor) or degree-hours, applied to the Open-Meteo forecast → projected daily and weekly cost; setback what-if |
-| **v2+ (later)** | — | schedule-adherence check, coldest-room-overnight report, alerts (unusually long run, sensor offline, furnace on but temp not rising → filter or failure), CSV export, bill calibration |
+| **v2+ (later)** | — | schedule-adherence check, coldest-room-overnight report, alerts (unusually long run, sensor offline, furnace on but temp not rising → filter or failure), CSV export, bill calibration, fridge/freezer monitoring (warm-up alerts, door-left-open detection, compressor duty cycle) |
 
 ## Assumptions (correct me in the room)
 - One home, two HVAC zones (Home and Office), only one thermostat in HomeKit so far. °C, Canadian $.

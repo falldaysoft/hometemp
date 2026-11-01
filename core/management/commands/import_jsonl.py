@@ -3,6 +3,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand
 
+from core.hvac import rebuild, thermostats
 from core.ingest import Ingestor
 
 
@@ -24,3 +25,5 @@ class Command(BaseCommand):
                 ing.ingest(records[i:i + 2000])
             self.stdout.write(f"{f.name}: {len(records)} records")
         self.stdout.write(str(ing.stats))
+        for acc in thermostats():
+            self.stdout.write(f"{acc.name}: {rebuild(acc)} runs")

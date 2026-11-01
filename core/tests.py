@@ -183,3 +183,26 @@ class CostTests(TestCase):
         self.assertEqual((office.furnace_input_btuh, office.furnace_afue, office.equipment_confirmed), (60000, 0.96, True))
         self.client.post("/settings/prices/", {"gas": "0.42", "electricity": "0.14"})
         self.assertTrue(HomeSettings.load().prices_confirmed)
+
+
+class HistoryTests(TestCase):
+    def test_history_renders_lines_bands_and_setpoint(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import Characteristic, HvacInterval
+        now = timezone.now()
+        acc = Accessory.objects.create(uuid=ACC, name="Office Thermostat", role="ambient")
+        temp = Characteristic.objects.create(uuid="C1000000-0000-0000-0000-000000000001", accessory=acc, kind="currentTemperature")
+        Characteristic.objects.create(uuid="C1000000-0000-0000-0000-000000000002", accessory=acc, kind="currentHeaterCoolerState")
+        sp = Characteristic.objects.create(uuid="C1000000-0000-0000-0000-000000000003", accessory=acc, kind="heatingThreshold")
+        for i in range(12):
+            Reading.objects.create(characteristic=temp, ts=now - timedelta(minutes=10 * (12 - i)), value=17 + i * 0.25, source=1)
+        Reading.objects.create(characteristic=sp, ts=now - timedelta(minutes=100), value=20, source=0)
+        HvacInterval.objects.create(thermostat=acc, start=now - timedelta(minutes=90), end=now - timedelta(minutes=60), mode="heating")
+        User.objects.create_user("u", password="p")
+        self.client.login(username="u", password="p")
+        body = self.client.get("/history/").content.decode()
+        self.assertIn("furnace ran 30 min over 1 cycle", body)
+        self.assertIn('class="band-heating"', body)
+        self.assertIn('class="set"', body)
+        self.assertIn("Office Thermostat", body)

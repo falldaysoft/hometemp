@@ -15,4 +15,5 @@ urlpatterns = [
     path("settings/prices/", views.save_prices, name="save_prices"),
     path("settings/zone/<int:pk>/", views.save_equipment, name="save_equipment"),
     path("cost/", views.cost, name="cost"),
+    path("history/", views.history, name="history"),
 ]

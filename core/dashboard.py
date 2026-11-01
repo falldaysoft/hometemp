@@ -404,3 +404,102 @@ def _today_cost(now):
         return {"cost": 0.0, "heat_min": 0.0, "cool_min": 0.0, "estimated": d["estimated"], "any": False}
     return {"cost": day["total"], "heat_min": sum(z["heat_min"] for z in day["zones"].values()),
             "cool_min": sum(z["cool_min"] for z in day["zones"].values()), "estimated": d["estimated"], "any": True}
+
+
+SERIES_COLORS = ["#30d158", "#bf5af2", "#ffd60a", "#ff375f", "#ac8e68", "#5e5ce6", "#ff9f0a"]
+
+
+def timeline(zone=None, hours=24, now=None, w=900, h=260):
+    """One chart for a zone (or the whole house): every room sensor, the thermostat, its heat setpoint,
+    furnace/AC runs as bands, and outdoor temperature on its own right-hand axis."""
+    from .models import HvacInterval, WeatherHour
+    now = now or timezone.now()
+    since = now - timedelta(hours=hours)
+    bucket = timedelta(minutes=5) if hours <= 24 else timedelta(minutes=30)
+
+    accs = Accessory.objects.filter(role=Accessory.Role.AMBIENT).select_related(
+        "homekit_room__zone", "room_override__zone")
+    accs = [a for a in accs if zone is None or a.zone == zone]
+    temp_chars = {c.accessory_id: c for c in Characteristic.objects.filter(kind="currentTemperature", accessory__in=accs)}
+    offsets = {c.id: next(a.calibration_offset for a in accs if a.id == c.accessory_id) for c in temp_chars.values()}
+    data = series([c.id for c in temp_chars.values()], since, bucket, offsets)
+
+    thermo_ids = {a.id for a in accs if a.characteristics.filter(
+        kind__in=["currentHeaterCoolerState", "currentHeatingCooling"]).exists()}
+    lines = []
+    for i, a in enumerate(sorted(accs, key=lambda a: (a.id not in thermo_ids, a.zone.order if a.zone else 9, a.name))):
+        c = temp_chars.get(a.id)
+        pts = data.get(c.id, []) if c else []
+        if len(pts) < 2:
+            continue
+        lines.append({"name": a.name if a.id in thermo_ids else (a.room.name if a.room else a.name),
+                      "sub": a.zone.name if zone is None and a.zone else "",
+                      "pts": pts, "thermostat": a.id in thermo_ids,
+                      "color": "#ffffff" if a.id in thermo_ids else SERIES_COLORS[len(lines) % len(SERIES_COLORS)],
+                      "last": pts[-1][1]})
+
+    setpoints = []
+    for c in Characteristic.objects.filter(kind="heatingThreshold", accessory_id__in=thermo_ids):
+        prior = Reading.objects.filter(characteristic=c, ts__lt=since).order_by("-ts").values_list("ts", "value").first()
+        pts = ([(since, prior[1])] if prior else []) + list(
+            Reading.objects.filter(characteristic=c, ts__gte=since).order_by("ts").values_list("ts", "value"))
+        if pts:
+            setpoints.append(pts)
+    runs = HvacInterval.objects.filter(thermostat_id__in=thermo_ids, end__gte=since)
+    outdoor_pts = [(t, v) for t, v in WeatherHour.objects.filter(issued=None, ts__gte=since, ts__lte=now)
+                   .order_by("ts").values_list("ts", "temperature") if v is not None]
+
+    first = min([l["pts"][0][0] for l in lines] + [p[0][0] for p in setpoints if p], default=since)
+    start = max(since, first) if lines else since
+    vals = [v for l in lines for _, v in l["pts"]] + [v for p in setpoints for _, v in p]
+    if not vals:
+        return None
+    lo, hi = min(vals) - 0.5, max(vals) + 0.5
+    span = (now - start).total_seconds() or 1
+    x = lambda t: w * max(0.0, (t - start).total_seconds()) / span
+    y = lambda v: h - h * (v - lo) / (hi - lo)
+    path = lambda pts: "M" + " L".join(f"{x(t):.1f},{y(v):.1f}" for t, v in pts)
+    for l in lines:
+        l["d"] = path(l["pts"])
+        l["end_y"] = y(l["last"])
+    steps = []
+    for pts in setpoints:
+        seg = []
+        for i, (t, v) in enumerate(pts):
+            if i:
+                seg.append(f"{x(t):.1f},{y(pts[i - 1][1]):.1f}")
+            seg.append(f"{x(t):.1f},{y(v):.1f}")
+        seg.append(f"{w:.1f},{y(pts[-1][1]):.1f}")
+        steps.append("M" + " L".join(seg))
+
+    outdoor_d = outdoor_axis = None
+    if len(outdoor_pts) >= 2:
+        ovals = [v for _, v in outdoor_pts]
+        olo, ohi = min(ovals) - 1, max(ovals) + 1
+        oy = lambda v: h - h * (v - olo) / (ohi - olo)
+        outdoor_d = "M" + " L".join(f"{x(t):.1f},{oy(v):.1f}" for t, v in outdoor_pts if t >= start)
+        outdoor_axis = {"hi": ohi - 1, "lo": olo + 1, "y_hi": oy(ohi - 1), "y_lo": oy(olo + 1)}
+
+    ticks, t = [], start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    stride = max(1, round(span / 3600 / 8))
+    stride = next(s for s in (1, 2, 3, 4, 6, 12, 24, 48) if s >= stride)
+    while t < now:
+        lt = timezone.localtime(t)
+        if lt.hour % stride == 0 or stride >= 24 and lt.hour == 0:
+            ticks.append({"x": x(t), "label": lt.strftime("%a") if stride >= 24 else lt.strftime("%-I %p").lower()})
+        t += timedelta(hours=1)
+    grid = []
+    step = 1 if hi - lo <= 6 else 2 if hi - lo <= 12 else 5
+    g = int(lo) + 1
+    while g < hi:
+        if g % step == 0:
+            grid.append({"y": y(g), "label": g})
+        g += 1
+    run_min = sum((min(r.end, now) - max(r.start, start)).total_seconds() / 60 for r in runs)
+    return {
+        "w": w, "h": h, "lines": lines, "steps": steps, "grid": grid, "ticks": ticks,
+        "bands": [{"x": x(max(r.start, start)), "w": max(1.5, x(min(r.end, now)) - x(max(r.start, start))),
+                   "mode": r.mode, "uncertain": r.uncertain} for r in runs],
+        "outdoor": outdoor_d, "outdoor_axis": outdoor_axis, "run_min": run_min, "cycles": runs.count(),
+        "start": start,
+    }

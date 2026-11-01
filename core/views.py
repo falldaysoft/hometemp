@@ -5,7 +5,7 @@ from django.views.decorators.http import require_POST
 
 from . import weather
 from .cost import daily
-from .dashboard import accessory_detail, dashboard, outdoor_detail
+from .dashboard import accessory_detail, dashboard, outdoor_detail, timeline
 from .models import Accessory, HomeSettings, Room, Zone
 
 
@@ -173,3 +173,12 @@ def cost(request):
     }
     return render(request, "core/_sheet_cost.html", {**data, "range_days": days, "totals": totals,
                                                      "rows": list(reversed(data["days"]))})
+
+
+@login_required
+def history(request):
+    hours = {"day": 24, "3days": 72, "week": 168}.get(request.GET.get("range"), 24)
+    zone = Zone.objects.filter(pk=request.GET.get("zone")).first() if request.GET.get("zone") else None
+    return render(request, "core/_sheet_history.html", {
+        "chart": timeline(zone, hours), "zones": Zone.objects.all(), "zone": zone, "hours": hours,
+        "range": request.GET.get("range", "day")})

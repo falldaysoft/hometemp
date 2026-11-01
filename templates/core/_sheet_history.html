@@ -1,0 +1,53 @@
+{% load hometemp %}
+<div class="wide max-h-[92vh] overflow-y-auto px-4 pb-6 pt-4">
+  <div class="flex items-center justify-between gap-3">
+    <div>
+      <div class="text-[17px] font-semibold">History</div>
+      <div class="caption">{% if zone %}{{ zone.name }} side{% else %}Whole house{% endif %}{% if chart.cycles %}: furnace ran {{ chart.run_min|floatformat:0 }} min over {{ chart.cycles }} cycle{{ chart.cycles|pluralize }}{% endif %}</div>
+    </div>
+    <form method="dialog"><button class="grid h-8 w-8 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Close">{% include "core/_icon.html" with name="close" %}</button></form>
+  </div>
+
+  <div class="mt-4 flex flex-wrap gap-2">
+    <div class="seg min-w-[220px] flex-1 sm:flex-none">
+      <label><input type="radio" name="zone" {% if not zone %}checked{% endif %} hx-get="{% url 'history' %}?range={{ range }}" hx-target="#sheet-body" hx-trigger="change">Whole house</label>
+      {% for z in zones %}<label><input type="radio" name="zone" {% if zone.pk == z.pk %}checked{% endif %} hx-get="{% url 'history' %}?zone={{ z.pk }}&range={{ range }}" hx-target="#sheet-body" hx-trigger="change">{{ z.name }}</label>{% endfor %}
+    </div>
+    <div class="seg min-w-[200px] flex-1 sm:flex-none">
+      <label><input type="radio" name="range" {% if range == "day" %}checked{% endif %} hx-get="{% url 'history' %}?range=day{% if zone %}&zone={{ zone.pk }}{% endif %}" hx-target="#sheet-body" hx-trigger="change">Day</label>
+      <label><input type="radio" name="range" {% if range == "3days" %}checked{% endif %} hx-get="{% url 'history' %}?range=3days{% if zone %}&zone={{ zone.pk }}{% endif %}" hx-target="#sheet-body" hx-trigger="change">3 days</label>
+      <label><input type="radio" name="range" {% if range == "week" %}checked{% endif %} hx-get="{% url 'history' %}?range=week{% if zone %}&zone={{ zone.pk }}{% endif %}" hx-target="#sheet-body" hx-trigger="change">Week</label>
+    </div>
+  </div>
+
+  {% if chart %}
+  <div class="group mt-3 p-3">
+    <svg class="chart w-full" viewBox="-30 -10 {{ chart.w|add:66 }} {{ chart.h|add:32 }}" role="img" aria-label="Temperatures over time">
+      {% for b in chart.bands %}<rect class="band-{{ b.mode }}" x="{{ b.x }}" y="0" width="{{ b.w }}" height="{{ chart.h }}" rx="2" {% if b.uncertain %}opacity=".5"{% endif %}/>{% endfor %}
+      {% for g in chart.grid %}<line class="grid" x1="0" x2="{{ chart.w }}" y1="{{ g.y }}" y2="{{ g.y }}"/><text x="-6" y="{{ g.y }}" text-anchor="end" dominant-baseline="middle">{{ g.label }}°</text>{% endfor %}
+      {% for t in chart.ticks %}<text x="{{ t.x }}" y="{{ chart.h|add:18 }}" text-anchor="middle">{{ t.label }}</text>{% endfor %}
+      {% if chart.outdoor %}
+        <path d="{{ chart.outdoor }}" fill="none" stroke="#5ac8fa" stroke-opacity=".55" stroke-width="1.5"/>
+        <text x="{{ chart.w|add:6 }}" y="{{ chart.outdoor_axis.y_hi }}" dominant-baseline="middle" fill="#5ac8fa" fill-opacity=".8">{{ chart.outdoor_axis.hi|floatformat:0 }}°</text>
+        <text x="{{ chart.w|add:6 }}" y="{{ chart.outdoor_axis.y_lo }}" dominant-baseline="middle" fill="#5ac8fa" fill-opacity=".8">{{ chart.outdoor_axis.lo|floatformat:0 }}°</text>
+      {% endif %}
+      {% for d in chart.steps %}<path class="set" d="{{ d }}"/>{% endfor %}
+      {% for l in chart.lines %}<path d="{{ l.d }}" fill="none" stroke="{{ l.color }}" stroke-width="{% if l.thermostat %}2.5{% else %}2{% endif %}" stroke-linejoin="round" stroke-linecap="round"/>{% endfor %}
+    </svg>
+  </div>
+
+  <div class="mt-3 grid gap-2 sm:grid-cols-2">
+    {% for l in chart.lines %}
+    <div class="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
+      <span class="flex min-w-0 items-center gap-2"><span class="inline-block h-0.5 w-5 shrink-0" style="background: {{ l.color }}"></span><span class="truncate">{{ l.name }}</span>{% if l.sub %}<span class="caption">{{ l.sub }}</span>{% endif %}</span>
+      <span class="num text-[var(--text-2)]">{{ l.last|temp }}</span>
+    </div>
+    {% endfor %}
+    {% if chart.steps %}<div class="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2"><span class="inline-block w-5 border-t-2 border-dashed border-[var(--heat)]"></span>Heat setpoint</div>{% endif %}
+    {% if chart.bands %}<div class="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2"><span class="inline-block h-3 w-5 rounded-sm bg-[rgba(255,159,10,.35)]"></span>Furnace running</div>{% endif %}
+    {% if chart.outdoor %}<div class="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2"><span class="inline-block h-0.5 w-5 bg-[#5ac8fa]/60"></span>Outside (right-hand scale)</div>{% endif %}
+  </div>
+  {% else %}
+  <div class="group mt-3 px-4 py-6 text-center caption">No room temperatures to chart yet. Give your sensors a role on their tiles, and they'll appear here.</div>
+  {% endif %}
+</div>

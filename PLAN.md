@@ -98,3 +98,21 @@ HomeKit lumps every temperature sensor in a room together. Homebridge brings in 
 - A paid Apple developer team is available for the HomeKit entitlement.
 - Single user. Login protects the dashboard; the collector authenticates with a device token.
 - Gas furnace for heat, central AC for cooling.
+
+## Spike findings (falltemp.1, 2026-11-01)
+
+What HomeKit actually exposes in this home (38 accessories, via `collector/`):
+
+| Accessory | Room | Kind | Notes |
+|---|---|---|---|
+| Office Thermostat — Resideo X2S (Matter) | Office | thermostat | Exposed as a **HeaterCooler** service, not Thermostat. Run-time = `CurrentHeaterCoolerState` (0 inactive, 1 idle, 2 heating, 3 cooling). Setpoints = `HeatingThreshold` / `CoolingThreshold` (no `TargetTemperature`). Mode = `TargetHeaterCoolerState` (0 auto, 1 heat, 2 cool). |
+| Office Air Quality Sensor — IKEA ALPSTUGA | Office | ambient | temp, humidity, **CO₂**, PM2.5, air quality. Read 21.2 °C while the thermostat read 17 °C. |
+| Living Room Air Quality Sensor — IKEA ALPSTUGA | Living Room | ambient | **unreachable** at spike time |
+| Main Fridge, Second Fridge — YoLink YS8003 (Homebridge) | Kitchen / **Office** | appliance | temp + humidity; Second Fridge is in HomeKit's Office room (the cause of "3–21 °C") |
+| Freezer — YoLink (Homebridge) | Kitchen | appliance | exposed as a **motion sensor**, no temperature — Homebridge YoLink plugin config |
+
+Consequences:
+- **The thermostat in HomeKit is the Office one.** The Home (living) side is sensors-only for now, so falltemp.9.6 is about the living-side thermostat.
+- Run-time, cost, and recovery for the office work today. Office occupancy can use **CO₂** (people raise it quickly) alongside the setpoint.
+- Ambient coverage is thin: 1 working room sensor per side at best. No HomePods, Eve, or Aqara sensors appear in the HomeKit API. Measuring "different parts of the house" needs more sensors (falltemp.9.7).
+- The thermostat and the room sensor beside it disagree by about 4 °C. Find out which one is right, by placement or by calibrating against a reference.

@@ -38,6 +38,16 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
         HMCharacteristicTypeStatusLowBattery: "statusLowBattery",
         HMCharacteristicTypeCurrentFanState: "currentFanState",
         HMCharacteristicTypeActive: "active",
+        // Matter thermostats (e.g. Resideo X2S) surface as a HeaterCooler service, not Thermostat.
+        // CurrentHeaterCoolerState: 0 inactive, 1 idle, 2 heating, 3 cooling — the run-time signal.
+        HMCharacteristicTypeCurrentHeaterCoolerState: "currentHeaterCoolerState",
+        // TargetHeaterCoolerState: 0 auto, 1 heat, 2 cool.
+        HMCharacteristicTypeTargetHeaterCoolerState: "targetHeaterCoolerState",
+        // Air quality sensors: CO2 is a strong occupancy signal for the office.
+        HMCharacteristicTypeCarbonDioxideLevel: "carbonDioxideLevel",
+        HMCharacteristicTypeAirQuality: "airQuality",
+        HMCharacteristicTypePM2_5Density: "pm25Density",
+        HMCharacteristicTypeVolatileOrganicCompoundDensity: "vocDensity",
     ]
 
     private let manager = HMHomeManager()

@@ -1,0 +1,35 @@
+name: HomeTempCollector
+options:
+  bundleIdPrefix: ca.fallday
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: FN4Q2985YR
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+targets:
+  HomeTempCollector:
+    type: application
+    platform: iOS
+    supportedDestinations: [iOS, macCatalyst]
+    sources: [Sources]
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: HomeTemp Collector
+        NSHomeKitUsageDescription: "HomeTemp records temperatures and thermostat state so you can chart heating and cooling over time."
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    entitlements:
+      path: Sources/HomeTempCollector.entitlements
+      properties:
+        com.apple.developer.homekit: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ca.fallday.hometemp.collector
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        SUPPORTS_MACCATALYST: YES
+        TARGETED_DEVICE_FAMILY: "1,2,6"
+        GENERATE_INFOPLIST_FILE: NO

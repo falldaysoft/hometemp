@@ -1,0 +1,7 @@
+.DS_Store
+.venv/
+__pycache__/
+collector/build/
+collector/*.xcodeproj/xcuserdata/
+collector/*.xcodeproj/project.xcworkspace/xcuserdata/
+collector/*.xcodeproj/

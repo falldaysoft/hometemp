@@ -125,3 +125,27 @@ class WeatherTests(TestCase):
         self.assertIn("-3.2°", body)
         self.assertIn("light snow", body)
         self.assertIn("Forecast snapshots", sheet)
+
+
+class HvacTests(TestCase):
+    def test_debounce_gap_and_rebuild(self):
+        from datetime import datetime, timedelta, timezone as tz
+        from .hvac import intervals, rebuild
+        from .models import Characteristic, HvacInterval
+        acc = Accessory.objects.create(uuid=ACC, name="Office Thermostat")
+        ch = Characteristic.objects.create(uuid="E827076A-8A8A-503C-8994-32892C7875E5", accessory=acc,
+                                           kind="currentHeaterCoolerState")
+        t0 = datetime(2026, 11, 1, 6, tzinfo=tz.utc)
+        seq = [(0, 0), (60, 2), (60.5, 0),            # 0.5 s blip: dropped
+               (120, 2), (720, 2), (1320, 0),          # 20 min run
+               (1800, 2), (2100, 2), (5000, 2)]        # run, then a 48 min silence: closed at 2100 s, uncertain
+        for sec, v in seq:
+            Reading.objects.create(characteristic=ch, ts=t0 + timedelta(seconds=sec), value=v, source=0)
+        runs = intervals(acc, until=t0 + timedelta(seconds=5000))
+        self.assertEqual([(r["start"] - t0).total_seconds() for r in runs], [120, 1800, 5000])
+        self.assertEqual((runs[0]["end"] - t0).total_seconds(), 1320)
+        self.assertTrue(runs[1]["uncertain"])
+        self.assertEqual((runs[1]["end"] - t0).total_seconds(), 2100)
+        rebuild(acc)
+        rebuild(acc)  # idempotent
+        self.assertEqual(HvacInterval.objects.filter(thermostat=acc, mode="heating").count(), 3)

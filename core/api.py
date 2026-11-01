@@ -5,6 +5,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+from .hvac import refresh_recent
 from .ingest import Ingestor
 from .models import CollectorDevice
 
@@ -33,6 +34,10 @@ def ingest(request):
         stats = ing.ingest(records)
     except (KeyError, ValueError, TypeError) as e:
         return JsonResponse({"error": f"bad record: {e}"}, status=400)
+    # Keep derived furnace/AC runs current; cheap (only thermostats, last 48 h).
+    if any(r.get("characteristic") in ("currentHeaterCoolerState", "currentHeatingCooling") or r.get("source") == "heartbeat"
+           for r in records if isinstance(r, dict)):
+        refresh_recent()
     device.last_seen = timezone.now()
     if ing.latest_ts and (device.last_record_ts is None or ing.latest_ts > device.last_record_ts):
         device.last_record_ts = ing.latest_ts

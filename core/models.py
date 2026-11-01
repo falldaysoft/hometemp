@@ -205,3 +205,26 @@ class WeatherNow(models.Model):
     ts = models.DateTimeField(unique=True)
     temperature = models.FloatField(null=True)
     data = models.JSONField(default=dict)
+
+
+class HvacInterval(models.Model):
+    """A furnace or AC run, derived from a thermostat's state readings (rebuildable; see core/hvac.py)."""
+
+    class Mode(models.TextChoices):
+        HEATING = "heating"
+        COOLING = "cooling"
+
+    thermostat = models.ForeignKey(Accessory, on_delete=models.CASCADE, related_name="runs")
+    start = models.DateTimeField()
+    end = models.DateTimeField()
+    mode = models.CharField(max_length=10, choices=Mode.choices)
+    open = models.BooleanField(default=False, help_text="Still running at the last reading")
+    uncertain = models.BooleanField(default=False, help_text="Collector went quiet during the run")
+
+    class Meta:
+        ordering = ["start"]
+        indexes = [models.Index(fields=["thermostat", "start"])]
+
+    @property
+    def minutes(self):
+        return (self.end - self.start).total_seconds() / 60

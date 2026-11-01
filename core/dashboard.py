@@ -253,12 +253,9 @@ def accessory_detail(acc, now=None, hours=24):
         if "heatingThreshold" in by_kind:
             setpoint = list(Reading.objects.filter(characteristic=by_kind["heatingThreshold"], ts__gte=since)
                             .order_by("ts").values_list("ts", "value"))
-        bands = []
-        for k in ("currentHeaterCoolerState", "currentHeatingCooling"):
-            if k in by_kind:
-                states = list(Reading.objects.filter(characteristic=by_kind[k], ts__gte=since)
-                              .order_by("ts").values_list("ts", "value"))
-                bands = run_intervals(states, k, now)
+        from .models import HvacInterval
+        bands = [(max(r.start, since), r.end, r.mode)
+                 for r in HvacInterval.objects.filter(thermostat=acc, end__gte=since)]
         first = Reading.objects.filter(characteristic__accessory=acc).order_by("ts").values_list("ts", flat=True).first()
         chart = build_chart(temp, setpoint, bands, max(since, first) if first else since, now)
     return {"tile": tile, "rows": rows, "chart": chart, "hours": hours}

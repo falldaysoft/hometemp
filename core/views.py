@@ -23,7 +23,14 @@ def index(request):
 
 def _sheet(request, acc, saved=False, status=200):
     hours = 168 if request.GET.get("range") == "week" else 24
-    ctx = {**accessory_detail(acc, hours=hours), "rooms": Room.objects.select_related("zone").order_by("zone__order", "name"),
+    show = [k for k in request.GET.get("show", "").split(",") if k]
+    detail = accessory_detail(acc, hours=hours, show=show)
+    rng = "week" if hours != 24 else "day"
+    for c in detail["overlay_choices"]:
+        toggled = [k for k in detail["show"] if k != c["kind"]] + ([] if c["on"] else [c["kind"]])
+        c["query"] = f"?range={rng}&show={','.join(toggled)}"
+    detail["show_param"] = ",".join(detail["show"])
+    ctx = {**detail, "rooms": Room.objects.select_related("zone").order_by("zone__order", "name"),
            "roles": [r for r in Accessory.Role if r != Accessory.Role.UNCLASSIFIED], "saved": saved}
     resp = render(request, "core/_sheet_accessory.html", ctx, status=status)
     if saved:

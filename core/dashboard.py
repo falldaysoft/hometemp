@@ -222,7 +222,48 @@ def dashboard(now=None):
     }
 
 
-def accessory_detail(acc, now=None, hours=24):
+# Metrics that can be overlaid on an accessory's temperature chart, each on its own scale.
+OVERLAYS = [
+    ("currentRelativeHumidity", "Humidity", "%", "#64d2ff"),
+    ("carbonDioxideLevel", "CO₂", " ppm", "#30d158"),
+    ("pm25Density", "PM2.5", " µg/m³", "#ffd60a"),
+    ("vocDensity", "VOC", " µg/m³", "#bf5af2"),
+    ("airQuality", "Air quality", "", "#ff375f"),
+]
+
+
+def overlay_lines(chart, by_kind, show, bucket):
+    """Extra series for the chart, each scaled to fill its height: [{kind, label, color, d, lo, hi, last, unit}]."""
+    out = []
+    since, until, w, h = chart["since"], chart["until"], chart["w"], chart["h"]
+    span = (until - since).total_seconds() or 1
+    for kind, label, unit, color in OVERLAYS:
+        if kind not in show or kind not in by_kind:
+            continue
+        pts = series([by_kind[kind].id], since, bucket).get(by_kind[kind].id, [])
+        if len(pts) < 2:
+            continue
+        vals = [v for _, v in pts]
+        if kind == "airQuality":
+            lo, hi = 1, 5  # Excellent … Poor
+        else:
+            lo, hi = min(vals), max(vals)
+            pad = max((hi - lo) * 0.08, 1 if kind != "pm25Density" else 0.5)
+            lo, hi = lo - pad, hi + pad
+        x = lambda t: w * max(0.0, (t - since).total_seconds()) / span
+        y = lambda v: h - h * (v - lo) / (hi - lo)
+        out.append({"kind": kind, "label": label, "unit": unit, "color": color,
+                    "d": "M" + " L".join(f"{x(t):.1f},{y(v):.1f}" for t, v in pts),
+                    "min": min(vals), "max": max(vals), "last": vals[-1],
+                    "fmt": (lambda v, k=kind, u=unit: fmt_value(k, v) if k == "airQuality" else
+                            (f"{v:.0f}{u}" if abs(v) >= 10 else f"{v:.1f}{u}"))})
+    for o in out:
+        o["min_s"], o["max_s"], o["last_s"] = o["fmt"](o["min"]), o["fmt"](o["max"]), o["fmt"](o["last"])
+        del o["fmt"]
+    return out
+
+
+def accessory_detail(acc, now=None, hours=24, show=()):
     now = now or timezone.now()
     since = now - timedelta(hours=hours)
     vals = latest_values([acc.id]).get(acc.id, {})
@@ -260,7 +301,12 @@ def accessory_detail(acc, now=None, hours=24):
                  for r in HvacInterval.objects.filter(thermostat=acc, end__gte=since)]
         first = Reading.objects.filter(characteristic__accessory=acc).order_by("ts").values_list("ts", flat=True).first()
         chart = build_chart(temp, setpoint, bands, max(since, first) if first else since, now)
-    return {"tile": tile, "rows": rows, "chart": chart, "hours": hours}
+        if chart:
+            chart["overlays"] = overlay_lines(chart, by_kind, set(show), bucket)
+    available = [{"kind": k, "label": l, "color": c, "on": k in show}
+                 for k, l, _, c in OVERLAYS if k in by_kind]
+    return {"tile": tile, "rows": rows, "chart": chart, "hours": hours, "overlay_choices": available,
+            "show": [k for k in show if k in by_kind]}
 
 
 def build_chart(temp, setpoint, bands, since, until, w=640, h=180):
@@ -293,7 +339,7 @@ def build_chart(temp, setpoint, bands, since, until, w=640, h=180):
         "w": w, "h": h, "line": line, "step": step, "ticks": ticks,
         "bands": [{"x": x(a), "w": max(1.5, x(b) - x(a)), "mode": m} for a, b, m in bands],
         "hi": hi - 0.5, "lo": lo + 0.5, "y_hi": y(hi - 0.5), "y_lo": y(lo + 0.5),
-        "run_minutes": round(run_seconds / 60), "cycles": len(bands),
+        "run_minutes": round(run_seconds / 60), "cycles": len(bands), "since": since, "until": until,
     }
 
 

@@ -379,3 +379,29 @@ class OccupancyTests(TestCase):
         self.assertFalse(OccupancyException.objects.exists())
         body = self.client.get("/").content.decode()
         self.assertIn("Set a schedule", body)  # the Home side has no schedule
+
+
+class OverlayTests(TestCase):
+    def test_overlays_toggle_on_their_own_scale(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import Characteristic
+        now = timezone.now()
+        acc = Accessory.objects.create(uuid=ACC, name="Office Air Quality Sensor", role="ambient")
+        temp = Characteristic.objects.create(uuid="C3000000-0000-0000-0000-000000000001", accessory=acc, kind="currentTemperature")
+        co2 = Characteristic.objects.create(uuid="C3000000-0000-0000-0000-000000000002", accessory=acc, kind="carbonDioxideLevel")
+        Characteristic.objects.create(uuid="C3000000-0000-0000-0000-000000000003", accessory=acc, kind="pm25Density")
+        for i in range(10):
+            ts = now - timedelta(minutes=10 * (10 - i))
+            Reading.objects.create(characteristic=temp, ts=ts, value=20 + i * 0.1, source=1)
+            Reading.objects.create(characteristic=co2, ts=ts, value=500 + 60 * i, source=1)
+        User.objects.create_user("u", password="p")
+        self.client.login(username="u", password="p")
+        plain = self.client.get(f"/accessory/{acc.pk}/").content.decode()
+        self.assertIn("CO₂", plain)
+        self.assertIn("PM2.5", plain)  # offered even though it has no data yet
+        self.assertNotIn("own scale", plain)
+        on = self.client.get(f"/accessory/{acc.pk}/?show=carbonDioxideLevel").content.decode()
+        self.assertIn("CO₂, own scale 500 ppm to 1040 ppm", on)
+        self.assertIn("now 1040 ppm", on)
+        self.assertIn('aria-pressed="true"', on)

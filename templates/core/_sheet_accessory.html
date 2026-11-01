@@ -28,8 +28,8 @@
       {% else %}{% if hours == 24 %}Last 24 hours{% else %}Last 7 days{% endif %}{% if t.is_thermostat %}: didn't run{% endif %}{% endif %}
     </div>
     <div class="seg w-36" role="tablist">
-      <label><input type="radio" name="range" {% if hours == 24 %}checked{% endif %} hx-get="{% url 'accessory' acc.pk %}" hx-target="#sheet-body" hx-trigger="change">24 h</label>
-      <label><input type="radio" name="range" {% if hours != 24 %}checked{% endif %} hx-get="{% url 'accessory' acc.pk %}?range=week" hx-target="#sheet-body" hx-trigger="change">7 days</label>
+      <label><input type="radio" name="range" {% if hours == 24 %}checked{% endif %} hx-get="{% url 'accessory' acc.pk %}?show={{ show_param }}" hx-target="#sheet-body" hx-trigger="change">24 h</label>
+      <label><input type="radio" name="range" {% if hours != 24 %}checked{% endif %} hx-get="{% url 'accessory' acc.pk %}?range=week&show={{ show_param }}" hx-target="#sheet-body" hx-trigger="change">7 days</label>
     </div>
   </div>
   <div class="group mt-2 p-3">
@@ -40,9 +40,26 @@
       <text x="-6" y="{{ chart.y_hi }}" text-anchor="end" dominant-baseline="middle">{{ chart.hi|floatformat:0 }}°</text>
       <text x="-6" y="{{ chart.y_lo }}" text-anchor="end" dominant-baseline="middle">{{ chart.lo|floatformat:0 }}°</text>
       {% for tick in chart.ticks %}<text x="{{ tick.x }}" y="{{ chart.h|add:16 }}" text-anchor="middle">{{ tick.label }}</text>{% endfor %}
+      {% for o in chart.overlays %}<path d="{{ o.d }}" fill="none" stroke="{{ o.color }}" stroke-width="1.6" stroke-opacity=".9" stroke-linejoin="round"/>{% endfor %}
       {% if chart.step %}<path class="set" d="{{ chart.step }}"/>{% endif %}
       <path class="temp" d="{{ chart.line }}"/>
     </svg>
+    {% if overlay_choices %}
+    <div class="mt-2 flex flex-wrap gap-1.5 px-1" role="group" aria-label="Overlay other measurements">
+      {% for c in overlay_choices %}
+      <button type="button" aria-pressed="{{ c.on|yesno:'true,false' }}" hx-get="{% url 'accessory' acc.pk %}{{ c.query }}" hx-target="#sheet-body"
+              class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] {% if c.on %}bg-white/15 text-white{% else %}bg-white/5 text-[var(--text-2)] hover:bg-white/10{% endif %}">
+        <span class="inline-block h-2 w-2 rounded-full" style="background: {{ c.color }}; opacity: {% if c.on %}1{% else %}.45{% endif %}"></span>{{ c.label }}
+      </button>
+      {% endfor %}
+    </div>
+    {% for o in chart.overlays %}
+    <div class="mt-1 flex items-center justify-between px-1 text-[12px]">
+      <span class="flex items-center gap-1.5 text-[var(--text-2)]"><span class="inline-block h-0.5 w-4" style="background: {{ o.color }}"></span>{{ o.label }}, own scale {{ o.min_s }} to {{ o.max_s }}</span>
+      <span class="num text-[var(--text-2)]">now {{ o.last_s }}</span>
+    </div>
+    {% endfor %}
+    {% endif %}
     {% if chart.step or chart.bands %}
     <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 px-1 text-[12px] text-[var(--text-2)]">
       <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-white"></span>Temperature</span>

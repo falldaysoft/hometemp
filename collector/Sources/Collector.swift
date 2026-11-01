@@ -1,6 +1,7 @@
 import Foundation
 import HomeKit
 import os
+import UIKit
 
 /// Spike collector (falltemp.1): discovers every HomeKit accessory, subscribes to the
 /// characteristics we care about, and appends every event plus a periodic heartbeat to
@@ -64,6 +65,23 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
             reason: "Recording HomeKit sensor events")
         manager.delegate = self
         status = "Waiting for HomeKit… (log: \(writer.directory.path))"
+        record(["type": "launch"])
+        // Log app/scene lifecycle so the spike report can tell whether events keep flowing
+        // while the window is minimized, hidden (Cmd-H) or closed (Cmd-W).
+        let lifecycle: [(Notification.Name, String)] = [
+            (UIApplication.didEnterBackgroundNotification, "didEnterBackground"),
+            (UIApplication.willEnterForegroundNotification, "willEnterForeground"),
+            (UIApplication.didBecomeActiveNotification, "didBecomeActive"),
+            (UIApplication.willResignActiveNotification, "willResignActive"),
+            (UIApplication.willTerminateNotification, "willTerminate"),
+            (UIScene.didDisconnectNotification, "sceneDidDisconnect"),
+            (UIScene.didActivateNotification, "sceneDidActivate"),
+        ]
+        for (name, label) in lifecycle {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.record(["type": "lifecycle", "event": label])
+            }
+        }
     }
 
     // MARK: HMHomeManagerDelegate

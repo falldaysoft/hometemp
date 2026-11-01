@@ -1,1 +1,137 @@
+import hashlib
+import secrets
+
 from django.db import models
+from django.utils import timezone
+
+
+class Zone(models.Model):
+    """One HVAC system: the house is split into a Home side and an Office side."""
+
+    name = models.CharField(max_length=60, unique=True)
+    order = models.PositiveSmallIntegerField(default=0)
+    thermostat = models.ForeignKey(
+        "Accessory", null=True, blank=True, on_delete=models.SET_NULL, related_name="thermostat_for"
+    )
+    safety_min = models.FloatField(null=True, blank=True, help_text="Alert below this (°C) when idle")
+    safety_max = models.FloatField(null=True, blank=True, help_text="Alert above this (°C) when idle")
+
+    class Meta:
+        ordering = ["order", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Room(models.Model):
+    """A HomeKit room name, mapped onto a zone."""
+
+    name = models.CharField(max_length=100, unique=True)
+    zone = models.ForeignKey(Zone, null=True, blank=True, on_delete=models.SET_NULL, related_name="rooms")
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Accessory(models.Model):
+    class Role(models.TextChoices):
+        UNCLASSIFIED = "unclassified", "Unclassified"
+        AMBIENT = "ambient", "Room (ambient)"
+        APPLIANCE = "appliance", "Appliance (fridge/freezer)"
+        OUTDOOR = "outdoor", "Outdoor"
+        IGNORE = "ignore", "Ignore"
+
+    uuid = models.UUIDField(unique=True)
+    name = models.CharField(max_length=200)
+    homekit_room = models.ForeignKey(Room, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    room_override = models.ForeignKey(
+        Room, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text="Use this room instead of the HomeKit one",
+    )
+    manufacturer = models.CharField(max_length=200, blank=True)
+    model = models.CharField(max_length=200, blank=True)
+    bridged = models.BooleanField(default=False)
+    reachable = models.BooleanField(default=True)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.UNCLASSIFIED)
+    calibration_offset = models.FloatField(default=0, help_text="Added to temperature readings (°C)")
+    first_seen = models.DateTimeField(default=timezone.now)
+    last_seen = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "accessories"
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def room(self):
+        return self.room_override or self.homekit_room
+
+    @property
+    def zone(self):
+        return self.room.zone if self.room else None
+
+    @staticmethod
+    def suggest_role(name, kinds):
+        """Conservative first guess; anything uncertain stays unclassified for review."""
+        lowered = name.lower()
+        if any(w in lowered for w in ("fridge", "freezer", "refrigerator")):
+            return Accessory.Role.APPLIANCE
+        if {"currentHeaterCoolerState", "currentHeatingCooling"} & set(kinds):
+            return Accessory.Role.AMBIENT  # a thermostat measures its room
+        if any(w in lowered for w in ("outdoor", "outside")):
+            return Accessory.Role.OUTDOOR
+        return Accessory.Role.UNCLASSIFIED
+
+
+class Characteristic(models.Model):
+    """One HomeKit characteristic we record (currentTemperature, heatingThreshold, …)."""
+
+    uuid = models.UUIDField(unique=True)
+    accessory = models.ForeignKey(Accessory, on_delete=models.CASCADE, related_name="characteristics")
+    kind = models.CharField(max_length=60, db_index=True)
+    unit = models.CharField(max_length=30, blank=True)
+
+    def __str__(self):
+        return f"{self.accessory.name} · {self.kind}"
+
+
+class Reading(models.Model):
+    class Source(models.IntegerChoices):
+        EVENT = 0, "event"
+        HEARTBEAT = 1, "heartbeat"
+        INITIAL = 2, "initial"
+
+    characteristic = models.ForeignKey(Characteristic, on_delete=models.CASCADE, related_name="readings")
+    ts = models.DateTimeField()
+    value = models.FloatField()
+    source = models.SmallIntegerField(choices=Source.choices)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["characteristic", "ts"], name="reading_unique_ts")]
+        indexes = [models.Index(fields=["characteristic", "-ts"], name="reading_latest")]
+
+
+class CollectorDevice(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    token_hash = models.CharField(max_length=64, unique=True)
+    last_seen = models.DateTimeField(null=True, blank=True)
+    last_record_ts = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return self.name
+
+    @staticmethod
+    def hash_token(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    @classmethod
+    def issue(cls, name):
+        """Create or rotate a device token; returns the plaintext token (shown once)."""
+        token = secrets.token_urlsafe(32)
+        cls.objects.update_or_create(name=name, defaults={"token_hash": cls.hash_token(token)})
+        return token

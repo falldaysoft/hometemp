@@ -13,7 +13,14 @@ ALLOWED_HOSTS = ["hometemp.fallday.ca", "localhost", "127.0.0.1"]
 
 CSRF_TRUSTED_ORIGINS = ["https://hometemp.fallday.ca"]
 
+# Traefik terminates TLS.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
 INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.messages",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -28,6 +35,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
 ]
 
 ROOT_URLCONF = "hometemp.urls"
@@ -41,6 +49,7 @@ TEMPLATES = [
             "context_processors": [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
@@ -63,6 +72,13 @@ STORAGES = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "index"
+LOGOUT_REDIRECT_URL = "login"
+
+# Collector batches can be large.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 
 TIME_ZONE = "America/Toronto"
 USE_TZ = True

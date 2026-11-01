@@ -9,7 +9,7 @@ from datetime import datetime
 
 from django.db import transaction
 
-from .models import Accessory, Characteristic, RawRecord, Reading, Room, Zone
+from .models import Accessory, Alias, Characteristic, RawRecord, Reading, Room, Zone
 
 SOURCES = {"event": Reading.Source.EVENT, "heartbeat": Reading.Source.HEARTBEAT, "initial": Reading.Source.INITIAL}
 
@@ -24,6 +24,43 @@ def numeric(v):
         return float(v)
     if isinstance(v, (int, float)):
         return float(v)
+    return None
+
+
+def find_accessory(acc_uuid, name, manufacturer=None, model=None):
+    """Our accessory for a HomeKit ID: by ID, by alias, or (for an ID from another collector Mac) by name and
+    make. A match adds an alias so later records resolve directly. None if it's genuinely new."""
+    acc = Accessory.objects.filter(uuid=acc_uuid).first()
+    if acc:
+        return acc
+    alias = Alias.objects.select_related("accessory").filter(uuid=acc_uuid, accessory__isnull=False).first()
+    if alias:
+        return alias.accessory
+    candidates = list(Accessory.objects.filter(name=name)) if name else []
+    if manufacturer:
+        same = [a for a in candidates if (a.manufacturer, a.model) == (manufacturer, model or "")]
+        candidates = same or [a for a in candidates if not a.manufacturer]
+    if len(candidates) == 1:
+        Alias.objects.get_or_create(uuid=acc_uuid, defaults={"accessory": candidates[0]})
+        return candidates[0]
+    return None
+
+
+def find_characteristic(ch_uuid, acc, kind, service_type):
+    ch = Characteristic.objects.select_related("accessory").filter(uuid=ch_uuid).first()
+    if ch:
+        return ch
+    alias = Alias.objects.select_related("characteristic__accessory").filter(
+        uuid=ch_uuid, characteristic__isnull=False).first()
+    if alias:
+        return alias.characteristic
+    if acc is None or acc.pk is None:
+        return None
+    candidates = [c for c in acc.characteristics.filter(kind=kind)
+                  if not service_type or not c.service_type or c.service_type == service_type]
+    if len(candidates) == 1:
+        Alias.objects.get_or_create(uuid=ch_uuid, defaults={"characteristic": candidates[0]})
+        return candidates[0]
     return None
 
 
@@ -53,7 +90,7 @@ class Ingestor:
         key = str(acc_uuid)
         acc = self.accessories.get(key)
         if acc is None:
-            acc = Accessory.objects.filter(uuid=acc_uuid).first()
+            acc = find_accessory(acc_uuid, name, extra.get("manufacturer"), extra.get("model"))
             if acc is None:
                 acc = Accessory(uuid=acc_uuid, name=name, first_seen=ts, last_seen=ts,
                                 role=Accessory.suggest_role(name, kinds))
@@ -74,15 +111,16 @@ class Ingestor:
         key = rec["characteristicUUID"]
         ch = self.characteristics.get(key)
         if ch is None:
-            ch = Characteristic.objects.select_related("accessory").filter(uuid=key).first()
+            acc = self.accessory(uuid.UUID(rec["accessoryUUID"]), rec.get("accessory", ""), rec.get("room"), ts,
+                                 kinds=[rec["characteristic"]])
+            ch = find_characteristic(key, acc, rec["characteristic"][:60], rec.get("service", ""))
             if ch is None:
-                acc = self.accessory(uuid.UUID(rec["accessoryUUID"]), rec.get("accessory", ""), rec.get("room"), ts,
-                                     kinds=[rec["characteristic"]])
                 ch = Characteristic(uuid=key, accessory=acc)
             # Newer collector builds name more characteristics and add HomeKit's own label; keep the latest.
             fields = {"kind": rec["characteristic"][:60], "type_uuid": rec.get("characteristicType", ch.type_uuid),
                       "description": rec.get("description", ch.description)[:100],
-                      "unit": rec.get("unit", ch.unit), "format": rec.get("format", ch.format)}
+                      "unit": rec.get("unit", ch.unit), "format": rec.get("format", ch.format),
+                      "service_type": rec.get("service", ch.service_type)[:40]}
             if ch.pk is None or any(getattr(ch, k) != v for k, v in fields.items()):
                 for k, v in fields.items():
                     setattr(ch, k, v)
@@ -102,7 +140,7 @@ class Ingestor:
                                manufacturer=a.get("manufacturer", ""), model=a.get("model", ""),
                                bridged=bool(a.get("bridged")), reachable=bool(a.get("reachable", True)))
         elif kind == "reachability":
-            acc = Accessory.objects.filter(uuid=rec["uuid"]).first()
+            acc = find_accessory(rec["uuid"], rec.get("accessory", ""))
             if acc:
                 acc.reachable = bool(rec.get("reachable"))
                 acc.save(update_fields=["reachable"])

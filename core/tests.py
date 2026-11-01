@@ -252,3 +252,59 @@ class SheetSmokeTests(TestCase):
         r = self.client.post("/rooms/", {"room": Room.objects.first().pk, "zone": Zone.objects.first().pk})
         self.assertEqual(r.status_code, 200)
         self.assertIn('hx-disinherit="*"', self.client.get("/").content.decode())
+
+
+class SecondCollectorTests(TestCase):
+    """HomeKit IDs differ per device; a second collector Mac must not duplicate accessories."""
+
+    def setUp(self):
+        self.token = CollectorDevice.issue("t")
+
+    def post(self, records):
+        return self.client.post("/api/ingest", json.dumps({"records": records}), content_type="application/json",
+                                headers={"Authorization": f"Bearer {self.token}"})
+
+    def other_device(self, rec, mapping):
+        s = json.dumps(rec)
+        for a, b in mapping.items():
+            s = s.replace(a, b)
+        return json.loads(s)
+
+    def test_second_device_ids_alias_onto_existing(self):
+        from .models import Alias, Characteristic
+        ch = "E827076A-8A8A-503C-8994-32892C7875E5"
+        first = [INVENTORY, {**value(ACC, ch, "currentHeaterCoolerState", 2, "2026-11-01T11:00:00Z"),
+                             "service": "000000BC-0000-1000-8000-0026BB765291"}]
+        self.post(first)
+        Accessory.objects.filter(uuid=ACC).update(role="ambient", calibration_offset=0.5)
+        mapping = {ACC: "AAAAAAAA-0000-0000-0000-000000000001", FRIDGE: "AAAAAAAA-0000-0000-0000-000000000002",
+                   ch: "BBBBBBBB-0000-0000-0000-000000000001", "11:00:00Z": "12:00:00Z"}
+        self.post([self.other_device(r, mapping) for r in first])
+        self.assertEqual(Accessory.objects.count(), 2)
+        self.assertEqual(Characteristic.objects.filter(kind="currentHeaterCoolerState").count(), 1)
+        self.assertEqual(Reading.objects.count(), 2)
+        self.assertEqual(Alias.objects.count(), 3)
+        self.assertEqual(Accessory.objects.get(uuid=ACC).calibration_offset, 0.5)  # settings kept
+
+    def test_merge_existing_duplicates(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from .models import Alias, Characteristic, Zone
+        keeper = Accessory.objects.create(uuid=ACC, name="Office Thermostat", manufacturer="Resideo", model="X2S",
+                                          role="ambient")
+        dup = Accessory.objects.create(uuid="AAAAAAAA-0000-0000-0000-000000000001", name="Office Thermostat",
+                                       manufacturer="Resideo", model="X2S")
+        c1 = Characteristic.objects.create(uuid="C0000000-0000-0000-0000-00000000000A", accessory=keeper, kind="currentTemperature")
+        c2 = Characteristic.objects.create(uuid="C0000000-0000-0000-0000-00000000000B", accessory=dup, kind="currentTemperature")
+        Characteristic.objects.create(uuid="C0000000-0000-0000-0000-00000000000C", accessory=dup, kind="carbonDioxideLevel")
+        from datetime import datetime, timezone as tz
+        Reading.objects.create(characteristic=c1, ts=datetime(2026, 11, 1, 10, tzinfo=tz.utc), value=20, source=1)
+        Reading.objects.create(characteristic=c2, ts=datetime(2026, 11, 1, 11, tzinfo=tz.utc), value=21, source=1)
+        Zone.objects.filter(name="Office").update(thermostat=dup)
+        call_command("merge_duplicates", stdout=StringIO())
+        self.assertEqual(Accessory.objects.count(), 1)
+        self.assertEqual(Reading.objects.filter(characteristic=c1).count(), 2)
+        self.assertEqual(keeper.characteristics.count(), 2)
+        self.assertEqual(Zone.objects.get(name="Office").thermostat_id, keeper.id)
+        self.assertTrue(Alias.objects.filter(uuid=dup.uuid, accessory=keeper).exists())
+        self.assertEqual(Accessory.objects.get().role, "ambient")

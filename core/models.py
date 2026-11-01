@@ -104,9 +104,20 @@ class Characteristic(models.Model):
     description = models.CharField(max_length=100, blank=True, help_text="HomeKit's own label")
     unit = models.CharField(max_length=30, blank=True)
     format = models.CharField(max_length=20, blank=True)
+    service_type = models.CharField(max_length=40, blank=True)
 
     def __str__(self):
         return f"{self.accessory.name} · {self.kind}"
+
+
+class Alias(models.Model):
+    """HomeKit IDs are per device: the same sensor has a different uniqueIdentifier on every Mac that runs the
+    collector. An alias maps another device's ID onto the accessory or characteristic we already have."""
+
+    uuid = models.UUIDField(unique=True)
+    accessory = models.ForeignKey(Accessory, null=True, blank=True, on_delete=models.CASCADE, related_name="aliases")
+    characteristic = models.ForeignKey(Characteristic, null=True, blank=True, on_delete=models.CASCADE,
+                                       related_name="aliases")
 
 
 class Reading(models.Model):

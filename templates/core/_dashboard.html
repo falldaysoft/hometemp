@@ -22,6 +22,8 @@
       <span class="pill"><span class="pill-icon">{% include "core/_icon.html" with name="collector" %}</span>
         <span><b>Live</b> <span class="sub">updated {{ latest_reading|ago }}</span></span></span>
       {% endif %}
+      <button type="button" class="pill" hx-get="{% url 'cost' %}" hx-target="#sheet-body"><span class="pill-icon {% if glow == 'heating' %}icon-disc heating{% endif %}">$</span>
+        <span><b>Today</b> <span class="sub num">{% if today_cost.any %}${{ today_cost.cost|floatformat:2 }}{% if today_cost.estimated %} est.{% endif %}, heat {{ today_cost.heat_min|floatformat:0 }} min{% else %}hasn't run{% endif %}</span></span></button>
       {% if outdoor and outdoor.temp is not None %}
       <button type="button" class="pill" hx-get="{% url 'outdoor' %}" hx-target="#sheet-body"><span class="pill-icon">{% include "core/_icon.html" with name="outdoor" %}</span>
         <span><b>Outside</b> <span class="sub num">{{ outdoor.temp|temp }}{% if outdoor.summary %}, {{ outdoor.summary|lower }}{% endif %}</span></span></button>

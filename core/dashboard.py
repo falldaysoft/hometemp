@@ -215,6 +215,7 @@ def dashboard(now=None):
         "latest_reading": latest,
         "collector_stale": latest is None or now - latest > STALE_AFTER,
         "outdoor": outdoor(now),
+        "today_cost": _today_cost(now),
         "glow": "heating" if "heating" in running else ("cooling" if "cooling" in running else "none"),
         "now": now,
     }
@@ -393,3 +394,13 @@ def outdoor_detail(hours=24, now=None):
             "counts": {"actual": WeatherHour.objects.filter(issued=None).count(),
                        "snapshots": WeatherHour.objects.exclude(issued=None).values("issued").distinct().count(),
                        "current": WeatherNow.objects.count()}}
+
+
+def _today_cost(now):
+    from .cost import daily
+    d = daily(1, now)
+    day = d["days"][0]
+    if not day["zones"]:
+        return {"cost": 0.0, "heat_min": 0.0, "cool_min": 0.0, "estimated": d["estimated"], "any": False}
+    return {"cost": day["total"], "heat_min": sum(z["heat_min"] for z in day["zones"].values()),
+            "cool_min": sum(z["cool_min"] for z in day["zones"].values()), "estimated": d["estimated"], "any": True}

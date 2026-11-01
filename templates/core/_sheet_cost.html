@@ -1,0 +1,62 @@
+{% load hometemp %}
+<div class="max-h-[92vh] overflow-y-auto px-4 pb-6 pt-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-[17px] font-semibold">Heating and cooling cost</div>
+      <div class="caption">Estimated from run time{% if estimated %}, using typical equipment and prices{% endif %}</div>
+    </div>
+    <form method="dialog"><button class="grid h-8 w-8 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Close">{% include "core/_icon.html" with name="close" %}</button></form>
+  </div>
+
+  <div class="mt-5 flex items-end justify-between px-1">
+    <div>
+      <div class="num text-[44px] font-semibold leading-none">${{ totals.cost|floatformat:2 }}</div>
+      <div class="caption mt-1">Last {{ range_days }} days</div>
+    </div>
+    <div class="seg w-40">
+      <label><input type="radio" name="range" {% if range_days == 14 %}checked{% endif %} hx-get="{% url 'cost' %}" hx-target="#sheet-body" hx-trigger="change">14 days</label>
+      <label><input type="radio" name="range" {% if range_days != 14 %}checked{% endif %} hx-get="{% url 'cost' %}?range=month" hx-target="#sheet-body" hx-trigger="change">30 days</label>
+    </div>
+  </div>
+
+  <div class="group mt-4 px-3 pb-2 pt-4">
+    <div class="flex h-36 items-end gap-[3px]" role="img" aria-label="Daily cost bars">
+      {% for d in days %}
+      <div class="flex h-full flex-1 flex-col justify-end" title="{{ d.date|date:'D j M' }}: ${{ d.total|floatformat:2 }}{% if d.outdoor_mean is not None %}, avg {{ d.outdoor_mean|floatformat:1 }}° outside{% endif %}">
+        {% for b in d.bars %}<div class="w-full rounded-[3px] {% if b.zone.order == 0 %}bg-[var(--heat)]{% else %}bg-[#ffcc66]{% endif %}" style="height: {{ b.pct|floatformat:1 }}%; min-height: {% if b.cost > 0 %}2px{% else %}0{% endif %}"></div>{% endfor %}
+        {% if not d.bars %}<div class="h-[2px] w-full rounded bg-white/10"></div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="mt-1.5 flex justify-between text-[11px] text-[var(--text-3)]">
+      <span>{{ days.0.date|date:"M j" }}</span><span>Today</span>
+    </div>
+  </div>
+
+  <div class="mt-2 flex gap-4 px-1 text-[12px] text-[var(--text-2)]">
+    {% for z in zones.values %}<span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm {% if z.order == 0 %}bg-[var(--heat)]{% else %}bg-[#ffcc66]{% endif %}"></span>{{ z.name }}</span>{% endfor %}
+  </div>
+
+  <div class="section-label">Totals</div>
+  <div class="group">
+    <div class="row"><span class="k">Furnace run time</span><span class="v num">{{ totals.heat_h|floatformat:1 }} h</span></div>
+    <div class="row"><span class="k">Gas</span><span class="v num">{{ totals.m3|floatformat:1 }} m³</span></div>
+    <div class="row"><span class="k">Electricity</span><span class="v num">{{ totals.kwh|floatformat:1 }} kWh</span></div>
+  </div>
+
+  <div class="section-label">By day</div>
+  <div class="group">
+    {% for d in rows %}
+    <div class="px-4 py-2.5">
+      <div class="flex items-baseline justify-between">
+        <span>{% if forloop.first %}Today{% else %}{{ d.date|date:"D j M" }}{% endif %}</span>
+        <span class="num text-[var(--text-2)]">${{ d.total|floatformat:2 }}</span>
+      </div>
+      <div class="mt-0.5 text-[12px] text-[var(--text-3)]">
+        {% if d.heat_min %}Heat {{ d.heat_min|floatformat:0 }} min{% endif %}{% if d.cool_min %}{% if d.heat_min %}, {% endif %}cool {{ d.cool_min|floatformat:0 }} min{% endif %}{% if not d.heat_min and not d.cool_min %}Didn't run{% endif %}{% if d.outdoor_mean is not None %}; averaged {{ d.outdoor_mean|floatformat:1 }}° outside{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="caption mt-3 px-1">HomeKit only says when the furnace or AC is on, not how hard it's working, so these are estimates. Enter the rating-plate numbers and your actual rates in Settings to tighten them; a later step will calibrate against a real bill.</p>
+</div>

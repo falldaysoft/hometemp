@@ -12,4 +12,7 @@ urlpatterns = [
     path("outdoor/", views.outdoor, name="outdoor"),
     path("settings/", views.settings_sheet, name="settings"),
     path("settings/places/", views.place_search, name="place_search"),
+    path("settings/prices/", views.save_prices, name="save_prices"),
+    path("settings/zone/<int:pk>/", views.save_equipment, name="save_equipment"),
+    path("cost/", views.cost, name="cost"),
 ]

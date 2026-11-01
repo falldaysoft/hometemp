@@ -15,6 +15,12 @@ class Zone(models.Model):
     )
     safety_min = models.FloatField(null=True, blank=True, help_text="Alert below this (°C) when idle")
     safety_max = models.FloatField(null=True, blank=True, help_text="Alert above this (°C) when idle")
+    # Equipment, for cost estimates. Defaults are typical values until the owner enters the rating plate.
+    furnace_input_btuh = models.PositiveIntegerField(default=60000, help_text="Gas input from the rating plate")
+    furnace_afue = models.FloatField(default=0.95, help_text="Efficiency, 0–1")
+    blower_kw = models.FloatField(default=0.4, help_text="Furnace fan electrical draw while heating")
+    ac_kw = models.FloatField(default=2.5, help_text="AC electrical draw while cooling (incl. outdoor fan)")
+    equipment_confirmed = models.BooleanField(default=False, help_text="False = still using typical defaults")
 
     class Meta:
         ordering = ["order", "name"]
@@ -164,6 +170,9 @@ class HomeSettings(models.Model):
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
     timezone = models.CharField(max_length=60, blank=True)
+    gas_price_m3 = models.FloatField(default=0.45, help_text="All-in $/m³ (commodity + delivery + transport)")
+    electricity_kwh = models.FloatField(default=0.13, help_text="All-in $/kWh")
+    prices_confirmed = models.BooleanField(default=False)
 
     @classmethod
     def load(cls):

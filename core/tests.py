@@ -149,3 +149,37 @@ class HvacTests(TestCase):
         rebuild(acc)
         rebuild(acc)  # idempotent
         self.assertEqual(HvacInterval.objects.filter(thermostat=acc, mode="heating").count(), 3)
+
+
+class CostTests(TestCase):
+    def test_run_cost_and_views(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .cost import daily
+        from .models import Characteristic, HomeSettings, HvacInterval, Zone
+        office = Zone.objects.get(name="Office")
+        acc = Accessory.objects.create(uuid=ACC, name="Office Thermostat")
+        Characteristic.objects.create(uuid="E827076A-8A8A-503C-8994-32892C7875E5", accessory=acc,
+                                      kind="currentHeaterCoolerState")
+        office.thermostat = acc
+        office.furnace_input_btuh = 70600  # 2 m³/h
+        office.blower_kw = 0.5
+        office.save()
+        s = HomeSettings.load()
+        s.gas_price_m3, s.electricity_kwh = 0.5, 0.2
+        s.save()
+        end = timezone.now() - timedelta(minutes=5)
+        HvacInterval.objects.create(thermostat=acc, start=end - timedelta(minutes=30), end=end, mode="heating")
+        today = daily(1)["days"][0]["zones"][office.id]
+        self.assertAlmostEqual(today["heat_min"], 30, places=3)
+        self.assertAlmostEqual(today["m3"], 1.0, places=3)
+        self.assertAlmostEqual(today["cost"], 0.5 + 0.25 * 0.2, places=3)
+
+        User.objects.create_user("u", password="p")
+        self.client.login(username="u", password="p")
+        self.assertIn("$0.55", self.client.get("/cost/").content.decode())
+        r = self.client.post(f"/settings/zone/{office.pk}/", {"btuh": "60000", "afue": "96", "blower": "0.4", "ac": "2.8"})
+        office.refresh_from_db()
+        self.assertEqual((office.furnace_input_btuh, office.furnace_afue, office.equipment_confirmed), (60000, 0.96, True))
+        self.client.post("/settings/prices/", {"gas": "0.42", "electricity": "0.14"})
+        self.assertTrue(HomeSettings.load().prices_confirmed)

@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_POST
 
 from . import weather
+from .cost import daily
 from .dashboard import accessory_detail, dashboard, outdoor_detail
 from .models import Accessory, HomeSettings, Room, Zone
 
@@ -98,7 +99,7 @@ def settings_sheet(request):
                 weather.fetch(s, past_days=14)  # backfill right away so the tile isn't empty
             except Exception:
                 pass
-    resp = render(request, "core/_sheet_settings.html", {"s": s, "saved": saved})
+    resp = render(request, "core/_sheet_settings.html", settings_context(s, saved))
     if saved:
         resp["HX-Trigger"] = "dashboard-changed"
     return resp
@@ -112,3 +113,63 @@ def place_search(request):
     except Exception:
         results, error = [], "Couldn't reach the place search. Try again in a moment."
     return render(request, "core/_place_results.html", {"results": results, "error": error})
+
+
+def settings_context(s, saved=False, saved_what=""):
+    return {"s": s, "saved": saved, "saved_what": saved_what, "zones": Zone.objects.all()}
+
+
+def _float(request, name, lo, hi):
+    try:
+        return max(lo, min(hi, float(request.POST[name])))
+    except (KeyError, ValueError):
+        return None
+
+
+@login_required
+@require_POST
+def save_prices(request):
+    s = HomeSettings.load()
+    gas, elec = _float(request, "gas", 0, 10), _float(request, "electricity", 0, 5)
+    if gas is not None and elec is not None:
+        s.gas_price_m3, s.electricity_kwh, s.prices_confirmed = gas, elec, True
+        s.save()
+    resp = render(request, "core/_sheet_settings.html", settings_context(s, True, "prices"))
+    resp["HX-Trigger"] = "dashboard-changed"
+    return resp
+
+
+@login_required
+@require_POST
+def save_equipment(request, pk):
+    z = get_object_or_404(Zone, pk=pk)
+    vals = {"furnace_input_btuh": _float(request, "btuh", 10000, 250000), "furnace_afue": _float(request, "afue", 50, 99),
+            "blower_kw": _float(request, "blower", 0, 3), "ac_kw": _float(request, "ac", 0, 15)}
+    if None not in vals.values():
+        z.furnace_input_btuh = int(vals["furnace_input_btuh"])
+        z.furnace_afue = vals["furnace_afue"] / 100
+        z.blower_kw, z.ac_kw, z.equipment_confirmed = vals["blower_kw"], vals["ac_kw"], True
+        z.save()
+    resp = render(request, "core/_sheet_settings.html", settings_context(HomeSettings.load(), True, f"zone-{z.pk}"))
+    resp["HX-Trigger"] = "dashboard-changed"
+    return resp
+
+
+@login_required
+def cost(request):
+    days = 30 if request.GET.get("range") == "month" else 14
+    data = daily(days)
+    peak = max((d["total"] for d in data["days"]), default=0) or 1
+    for d in data["days"]:
+        d["bars"] = [{"zone": data["zones"][zid], "cost": z["cost"], "pct": 100 * z["cost"] / peak}
+                     for zid, z in sorted(d["zones"].items())]
+        d["heat_min"] = sum(z["heat_min"] for z in d["zones"].values())
+        d["cool_min"] = sum(z["cool_min"] for z in d["zones"].values())
+    totals = {
+        "cost": sum(d["total"] for d in data["days"]),
+        "m3": sum(z["m3"] for d in data["days"] for z in d["zones"].values()),
+        "kwh": sum(z["kwh"] for d in data["days"] for z in d["zones"].values()),
+        "heat_h": sum(d["heat_min"] for d in data["days"]) / 60,
+    }
+    return render(request, "core/_sheet_cost.html", {**data, "range_days": days, "totals": totals,
+                                                     "rows": list(reversed(data["days"]))})

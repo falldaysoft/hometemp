@@ -245,7 +245,9 @@ class SheetSmokeTests(TestCase):
         User.objects.create_user("u", password="p")
         self.client.login(username="u", password="p")
         acc = Accessory.objects.first()
+        from .models import Zone as Z
         for url in ["/", "/rooms/", "/settings/", "/history/", "/history/?range=week", "/cost/", "/cost/?range=month",
+                    f"/zone/{Z.objects.get(name='Office').pk}/schedule/", f"/history/?zone={Z.objects.get(name='Office').pk}",
                     "/outdoor/", f"/accessory/{acc.pk}/", f"/accessory/{acc.pk}/?range=week"]:
             self.assertEqual(self.client.get(url).status_code, 200, url)
         from .models import Room, Zone
@@ -308,3 +310,72 @@ class SecondCollectorTests(TestCase):
         self.assertEqual(Zone.objects.get(name="Office").thermostat_id, keeper.id)
         self.assertTrue(Alias.objects.filter(uuid=dup.uuid, accessory=keeper).exists())
         self.assertEqual(Accessory.objects.get().role, "ambient")
+
+
+class OccupancyTests(TestCase):
+    def setUp(self):
+        from .models import Zone
+        self.office = Zone.objects.get(name="Office")  # seeded schedule: weekdays 8:30–17:00
+
+    def at(self, y, m, d, h=0, mi=0):
+        from datetime import datetime
+        from django.utils import timezone
+        return timezone.make_aware(datetime(y, m, d, h, mi))
+
+    def test_schedule_holiday_and_exception(self):
+        from .models import OccupancyException
+        from .occupancy import now_state, periods
+        week = periods(self.office, self.at(2026, 10, 12), self.at(2026, 10, 17))  # Mon (Thanksgiving) … Fri
+        work = [p for p in week if p["kind"] == "work"]
+        self.assertEqual(len(work), 4)  # Tue–Fri; Monday is a holiday
+        self.assertTrue(any(p["label"] == "Thanksgiving Day" and p["kind"] == "idle" for p in week))
+        self.assertEqual((work[0]["start"], work[0]["end"]), (self.at(2026, 10, 13, 8, 30), self.at(2026, 10, 13, 17)))
+        OccupancyException.objects.create(zone=self.office, kind="off", note="Vacation",
+                                          start=self.at(2026, 10, 15), end=self.at(2026, 10, 17))
+        OccupancyException.objects.create(zone=self.office, kind="other", note="Guests",
+                                          start=self.at(2026, 10, 17), end=self.at(2026, 10, 19))
+        week = periods(self.office, self.at(2026, 10, 12), self.at(2026, 10, 19))
+        self.assertEqual(len([p for p in week if p["kind"] == "work"]), 2)  # Tue, Wed
+        self.assertTrue(any(p["label"] == "Guests" and p["kind"] == "other" for p in week))
+        st = now_state(self.office, self.at(2026, 10, 13, 10))
+        self.assertEqual((st["kind"], st["until"]), ("work", self.at(2026, 10, 13, 17)))
+        st = now_state(self.office, self.at(2026, 10, 16, 10))
+        self.assertEqual((st["kind"], st["label"]), ("idle", "Vacation"))
+
+    def test_evidence_flags_a_missed_work_day(self):
+        from datetime import timedelta
+        from .models import Characteristic
+        from .occupancy import evidence
+        acc = Accessory.objects.create(uuid=ACC, name="Office Air Quality Sensor", role="ambient")
+        from .models import Room
+        acc.homekit_room = Room.objects.create(name="Office", zone=self.office)
+        acc.save()
+        co2 = Characteristic.objects.create(uuid="C2000000-0000-0000-0000-000000000001", accessory=acc,
+                                            kind="carbonDioxideLevel")
+        tue, wed = self.at(2026, 10, 13), self.at(2026, 10, 14)
+        for day, peak in ((tue, 1100), (wed, 520)):
+            Reading.objects.create(characteristic=co2, ts=day + timedelta(hours=3), value=480, source=1)
+            Reading.objects.create(characteristic=co2, ts=day + timedelta(hours=11), value=peak, source=1)
+        ev = {e["date"].day: e for e in evidence(self.office, 3, now=self.at(2026, 10, 15, 9))}
+        self.assertEqual((ev[13]["seen"], ev[13]["mismatch"]), ("in use", False))
+        self.assertEqual((ev[14]["seen"], ev[14]["mismatch"]), ("idle", True))
+
+    def test_schedule_sheet_forms(self):
+        from .models import OccupancyException, ZoneSchedule
+        User.objects.create_user("u", password="p")
+        self.client.login(username="u", password="p")
+        url = f"/zone/{self.office.pk}/schedule/"
+        self.assertEqual(self.client.get(url).status_code, 200)
+        self.client.post(url, {"action": "schedule", "enabled": "on", "weekday": ["0", "1", "2", "3"],
+                               "start": "09:00", "end": "16:30", "skip_holidays": "on", "country": "ca",
+                               "subdivision": "on"})
+        s = ZoneSchedule.objects.get(zone=self.office)
+        self.assertEqual((s.weekdays, str(s.start), str(s.end)), ("0,1,2,3", "09:00:00", "16:30:00"))
+        self.client.post(url, {"action": "add", "kind": "off", "start": "2026-12-28", "end": "2026-12-31",
+                               "note": "Holidays"})
+        ex = OccupancyException.objects.get()
+        self.assertEqual((ex.end - ex.start).days, 4)
+        self.client.post(url, {"action": "delete", "id": ex.pk})
+        self.assertFalse(OccupancyException.objects.exists())
+        body = self.client.get("/").content.decode()
+        self.assertIn("Set a schedule", body)  # the Home side has no schedule

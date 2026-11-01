@@ -16,4 +16,5 @@ urlpatterns = [
     path("settings/zone/<int:pk>/", views.save_equipment, name="save_equipment"),
     path("cost/", views.cost, name="cost"),
     path("history/", views.history, name="history"),
+    path("zone/<int:pk>/schedule/", views.schedule, name="schedule"),
 ]

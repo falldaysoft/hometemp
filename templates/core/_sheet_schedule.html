@@ -1,0 +1,98 @@
+{% load hometemp %}
+<div class="max-h-[92vh] overflow-y-auto px-4 pb-6 pt-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-[17px] font-semibold">{{ zone.name }} schedule</div>
+      <div class="caption">{% if state %}{{ state.label }}{% if state.until %} until {{ state.until|date:"D g:i a" }}{% endif %}{% else %}In use all the time{% endif %}</div>
+    </div>
+    <form method="dialog"><button class="grid h-8 w-8 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Close">{% include "core/_icon.html" with name="close" %}</button></form>
+  </div>
+  {% if message %}<p class="mt-3 text-center text-[13px] {% if 'has to' in message or 'Pick' in message %}text-[var(--warn)]{% else %}text-[var(--ok)]{% endif %}" role="status">{{ message }}</p>{% endif %}
+
+  <div class="section-label">Usual hours</div>
+  <form class="group" hx-post="{% url 'schedule' zone.pk %}" hx-target="#sheet-body" x-data="{ on: {{ sched|yesno:'true,false' }} }">
+    {% csrf_token %}<input type="hidden" name="action" value="schedule">
+    <label class="row items-center cursor-pointer"><span>Use a schedule for this side</span>
+      <input type="checkbox" name="enabled" x-model="on" class="h-5 w-5 accent-[var(--ok)]"></label>
+    <div x-show="on" x-cloak>
+      <div class="px-4 py-3">
+        <div class="flex flex-wrap gap-1.5">
+          {% for name in weekday_names %}
+          <label class="cursor-pointer"><input type="checkbox" name="weekday" value="{{ forloop.counter0 }}" class="peer sr-only"
+            {% if not sched and forloop.counter0 < 5 or sched and forloop.counter0|stringformat:"s" in sched.weekdays %}checked{% endif %}>
+            <span class="block rounded-full bg-white/10 px-3 py-1.5 text-[13px] peer-checked:bg-white peer-checked:font-semibold peer-checked:text-[var(--ink)] peer-focus-visible:outline peer-focus-visible:outline-2">{{ name }}</span></label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="row items-center"><label for="s-start">From</label><input id="s-start" type="time" name="start" value="{{ sched.start|time:'H:i'|default:'08:30' }}" class="field num"></div>
+      <div class="row items-center"><label for="s-end">To</label><input id="s-end" type="time" name="end" value="{{ sched.end|time:'H:i'|default:'17:00' }}" class="field num"></div>
+      <label class="row items-center cursor-pointer"><span>Idle on statutory holidays</span>
+        <input type="checkbox" name="skip_holidays" {% if not sched or sched.skip_holidays %}checked{% endif %} class="h-5 w-5 accent-[var(--ok)]"></label>
+      <div class="row items-center"><span>Holidays for<div class="text-[12px] text-[var(--text-3)]">Country and province codes, e.g. CA and ON</div></span>
+        <span class="flex gap-1.5"><input name="country" value="{{ settings.holiday_country }}" maxlength="2" aria-label="Country code" class="field w-12 text-center uppercase">
+        <input name="subdivision" value="{{ settings.holiday_subdivision }}" maxlength="10" aria-label="Province or state code" class="field w-14 text-center uppercase"></span></div>
+    </div>
+    <div class="px-4 py-3"><button class="primary">Save schedule</button></div>
+  </form>
+
+  {% if sched %}
+  <div class="section-label">Days off and other use</div>
+  <div class="group">
+    {% for h in holidays %}
+    <div class="row"><span class="k">{{ h.label }}</span><span class="v">{{ h.start|date:"D j M" }}, holiday</span></div>
+    {% endfor %}
+    {% for ex in exceptions %}
+    <form class="row items-center" hx-post="{% url 'schedule' zone.pk %}" hx-target="#sheet-body">
+      {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ ex.pk }}">
+      <span class="min-w-0"><span class="block truncate">{{ ex.note|default:ex.get_kind_display }}</span>
+        <span class="text-[12px] text-[var(--text-3)]">{{ ex.get_kind_display }}, {{ ex.start|date:"D j M" }}{% if ex.end|date:"Ymd" != ex.start|date:"Ymd" %} to {{ ex.end|date:"D j M" }}{% endif %}</span></span>
+      <button class="text-[13px] text-[var(--text-2)] hover:text-white">Remove</button>
+    </form>
+    {% endfor %}
+    {% if not holidays and not exceptions %}<div class="row"><span class="caption">No holidays or days off in the next 90 days.</span></div>{% endif %}
+  </div>
+
+  <form class="group mt-3" hx-post="{% url 'schedule' zone.pk %}" hx-target="#sheet-body" x-data="{ kind: 'off' }">
+    {% csrf_token %}<input type="hidden" name="action" value="add">
+    <div class="px-4 py-3">
+      <div class="seg">
+        <label><input type="radio" name="kind" value="off" x-model="kind">Day off</label>
+        <label><input type="radio" name="kind" value="other" x-model="kind">Other use</label>
+        <label><input type="radio" name="kind" value="work" x-model="kind">Extra work</label>
+      </div>
+      <p class="mt-2 text-[12px] text-[var(--text-3)]" x-text="kind === 'off' ? 'Vacation or a day off: the side can drift.' : kind === 'other' ? 'Guests or an event: the side is in use all day.' : 'Working a day you normally don\'t.'"></p>
+    </div>
+    <div class="row items-center"><label for="ex-start">From</label><input id="ex-start" type="date" name="start" value="{{ today|date:'Y-m-d' }}" class="field num"></div>
+    <div class="row items-center"><label for="ex-end">To</label><input id="ex-end" type="date" name="end" value="{{ today|date:'Y-m-d' }}" class="field num"></div>
+    <div class="row items-center"><label for="ex-note">Note</label><input id="ex-note" name="note" placeholder="Optional, e.g. Parents visiting" class="field w-[60%]"></div>
+    <div class="px-4 py-3"><button class="primary">Add</button></div>
+  </form>
+
+  {% if evidence %}
+  <div class="section-label">Schedule vs what the sensors saw</div>
+  <div class="group">
+    {% for e in evidence %}
+    <div class="px-4 py-2.5">
+      <div class="flex items-baseline justify-between gap-3">
+        <span>{% if e.today %}Today{% else %}{{ e.date|date:"D j M" }}{% endif %}</span>
+        <span class="text-[13px] {% if e.mismatch %}text-[var(--warn)]{% else %}text-[var(--text-2)]{% endif %}">
+          {% if e.label %}{{ e.label }}{% elif e.expected == "work" %}Work day{% elif e.expected == "other" %}Other use{% else %}Day off{% endif %}{% if e.seen %}, looked {{ e.seen }}{% endif %}
+        </span>
+      </div>
+      <div class="mt-0.5 text-[12px] text-[var(--text-3)]">
+        {% if e.co2_rise is not None %}CO₂ up {{ e.co2_rise|floatformat:0 }} ppm{% else %}No CO₂ data{% endif %}{% if e.setpoint is not None %}, heat set as high as {{ e.setpoint|temp }}{% endif %}{% if e.furnace_min %}, furnace {{ e.furnace_min|floatformat:0 }} min{% endif %}
+      </div>
+      {% if e.mismatch and e.expected == "work" and not e.today %}
+      <form class="mt-1.5" hx-post="{% url 'schedule' zone.pk %}" hx-target="#sheet-body">
+        {% csrf_token %}<input type="hidden" name="action" value="add"><input type="hidden" name="kind" value="off">
+        <input type="hidden" name="start" value="{{ e.date|date:'Y-m-d' }}"><input type="hidden" name="end" value="{{ e.date|date:'Y-m-d' }}">
+        <button class="text-[13px] text-white underline">Mark as a day off</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="caption mt-2 px-1">"In use" means the heat was set to {{ 18|floatformat:0 }}° or more, or CO₂ rose at least 150 ppm above the early-morning level.</p>
+  {% endif %}
+  {% endif %}
+</div>

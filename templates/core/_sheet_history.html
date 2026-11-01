@@ -23,6 +23,7 @@
   {% if chart %}
   <div class="group mt-3 p-3">
     <svg class="chart w-full" viewBox="-30 -10 {{ chart.w|add:66 }} {{ chart.h|add:32 }}" role="img" aria-label="Temperatures over time">
+      {% for o in chart.occupancy %}<rect x="{{ o.x }}" y="-8" width="{{ o.w }}" height="4" rx="2" fill="{% if o.kind == 'work' %}#30d158{% else %}#bf5af2{% endif %}" fill-opacity=".8"><title>{{ o.label }}</title></rect>{% endfor %}
       {% for b in chart.bands %}<rect class="band-{{ b.mode }}" x="{{ b.x }}" y="0" width="{{ b.w }}" height="{{ chart.h }}" rx="2" {% if b.uncertain %}opacity=".5"{% endif %}/>{% endfor %}
       {% for g in chart.grid %}<line class="grid" x1="0" x2="{{ chart.w }}" y1="{{ g.y }}" y2="{{ g.y }}"/><text x="-6" y="{{ g.y }}" text-anchor="end" dominant-baseline="middle">{{ g.label }}°</text>{% endfor %}
       {% for t in chart.ticks %}<text x="{{ t.x }}" y="{{ chart.h|add:18 }}" text-anchor="middle">{{ t.label }}</text>{% endfor %}
@@ -45,6 +46,7 @@
     {% endfor %}
     {% if chart.steps %}<div class="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2"><span class="inline-block w-5 border-t-2 border-dashed border-[var(--heat)]"></span>Heat setpoint</div>{% endif %}
     {% if chart.bands %}<div class="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2"><span class="inline-block h-3 w-5 rounded-sm bg-[rgba(255,159,10,.35)]"></span>Furnace running</div>{% endif %}
+    {% if chart.occupancy %}<div class="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2"><span class="inline-block h-1 w-5 rounded bg-[#30d158]"></span>Scheduled in use (bar along the top)</div>{% endif %}
     {% if chart.outdoor %}<div class="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2"><span class="inline-block h-0.5 w-5 bg-[#5ac8fa]/60"></span>Outside (right-hand scale)</div>{% endif %}
   </div>
   {% else %}

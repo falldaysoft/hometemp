@@ -184,6 +184,8 @@ class HomeSettings(models.Model):
     gas_price_m3 = models.FloatField(default=0.45, help_text="All-in $/m³ (commodity + delivery + transport)")
     electricity_kwh = models.FloatField(default=0.13, help_text="All-in $/kWh")
     prices_confirmed = models.BooleanField(default=False)
+    holiday_country = models.CharField(max_length=2, default="CA")
+    holiday_subdivision = models.CharField(max_length=10, default="ON", blank=True)
     weather_fetched_at = models.DateTimeField(null=True, blank=True)
     weather_error = models.CharField(max_length=300, blank=True)
     location_changed = models.BooleanField(default=False, help_text="Scheduler backfills on its next pass")
@@ -251,3 +253,35 @@ class HvacInterval(models.Model):
     @property
     def minutes(self):
         return (self.end - self.start).total_seconds() / 60
+
+
+class ZoneSchedule(models.Model):
+    """When a zone is normally in use, e.g. Office 8:30–17:00 on weekdays. No schedule = always in use."""
+
+    zone = models.OneToOneField(Zone, on_delete=models.CASCADE, related_name="schedule")
+    weekdays = models.CharField(max_length=20, default="0,1,2,3,4", help_text="Monday=0 … Sunday=6")
+    start = models.TimeField()
+    end = models.TimeField()
+    skip_holidays = models.BooleanField(default=True)
+
+    @property
+    def days(self):
+        return {int(d) for d in self.weekdays.split(",") if d.strip() != ""}
+
+
+class OccupancyException(models.Model):
+    """A change from the usual schedule: vacation or a day off (idle), other use such as guests, or extra work."""
+
+    class Kind(models.TextChoices):
+        OFF = "off", "Day off"
+        OTHER = "other", "Other use"
+        WORK = "work", "Extra work"
+
+    zone = models.ForeignKey(Zone, on_delete=models.CASCADE, related_name="exceptions")
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    start = models.DateTimeField()
+    end = models.DateTimeField()
+    note = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        ordering = ["start"]

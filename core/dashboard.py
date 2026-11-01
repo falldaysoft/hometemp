@@ -199,7 +199,8 @@ def dashboard(now=None):
             if thermo and t.temp is not None and thermo.temp is not None:
                 t.delta = t.temp - thermo.temp
         temps = [t.temp for t in members if t.temp is not None and not t.stale]
-        zones.append({"zone": zone, "thermostat": thermo, "rooms": rooms,
+        from .occupancy import now_state
+        zones.append({"zone": zone, "thermostat": thermo, "rooms": rooms, "occupancy": now_state(zone, now),
                       "range": (min(temps), max(temps)) if temps else None})
 
     appliances = sorted((t for t in tiles if t.acc.role == Accessory.Role.APPLIANCE), key=lambda t: t.acc.name)
@@ -496,10 +497,16 @@ def timeline(zone=None, hours=24, now=None, w=900, h=260):
             grid.append({"y": y(g), "label": g})
         g += 1
     run_min = sum((min(r.end, now) - max(r.start, start)).total_seconds() / 60 for r in runs)
+    occ = []
+    if zone is not None:
+        from .occupancy import periods
+        occ = [{"x": x(p["start"]), "w": max(1.0, x(p["end"]) - x(p["start"])), "kind": p["kind"], "label": p["label"]}
+               for p in (periods(zone, start, now) or []) if p["kind"] != "idle"]
     return {
         "w": w, "h": h, "lines": lines, "steps": steps, "grid": grid, "ticks": ticks,
         "bands": [{"x": x(max(r.start, start)), "w": max(1.5, x(min(r.end, now)) - x(max(r.start, start))),
                    "mode": r.mode, "uncertain": r.uncertain} for r in runs],
         "outdoor": outdoor_d, "outdoor_axis": outdoor_axis, "run_min": run_min, "cycles": runs.count(),
+        "occupancy": occ,
         "start": start,
     }

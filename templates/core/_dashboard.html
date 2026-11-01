@@ -62,9 +62,14 @@
 
     {% for z in zones %}
     <section id="zone-{{ z.zone.pk }}" class="mt-8">
-      <div class="flex items-baseline justify-between">
-        <h2 class="text-[20px] font-semibold">{{ z.zone.name }}</h2>
-        <button type="button" class="caption hover:text-white" hx-get="{% url 'history' %}?zone={{ z.zone.pk }}" hx-target="#sheet-body">History</button>
+      <div class="flex items-baseline justify-between gap-3">
+        <div class="flex min-w-0 items-baseline gap-3">
+          <h2 class="text-[20px] font-semibold">{{ z.zone.name }}</h2>
+          <button type="button" class="caption truncate hover:text-white" hx-get="{% url 'schedule' z.zone.pk %}" hx-target="#sheet-body">
+            {% with o=z.occupancy %}{% if o %}<span class="mr-1 inline-block h-2 w-2 rounded-full {% if o.kind == 'work' %}bg-[var(--ok)]{% elif o.kind == 'other' %}bg-[#bf5af2]{% else %}bg-white/30{% endif %}"></span>{{ o.label }}{% if o.until %} until {{ o.until|date:"D g:i a" }}{% endif %}{% else %}Set a schedule{% endif %}{% endwith %}
+          </button>
+        </div>
+        <button type="button" class="caption shrink-0 hover:text-white" hx-get="{% url 'history' %}?zone={{ z.zone.pk }}" hx-target="#sheet-body">History</button>
       </div>
       <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {% if z.thermostat %}

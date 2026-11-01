@@ -6,7 +6,8 @@ from django.views.decorators.http import require_POST
 from . import weather
 from .cost import daily
 from .dashboard import accessory_detail, dashboard, outdoor_detail, timeline
-from .models import Accessory, HomeSettings, Room, Zone
+from .models import Accessory, HomeSettings, OccupancyException, Room, Zone, ZoneSchedule
+from . import occupancy
 
 
 def health(request):
@@ -180,3 +181,76 @@ def history(request):
     return render(request, "core/_sheet_history.html", {
         "chart": timeline(zone, hours), "zones": Zone.objects.all(), "zone": zone, "hours": hours,
         "range": request.GET.get("range", "day")})
+
+
+def _schedule_ctx(zone, message=""):
+    from datetime import timedelta
+    from django.utils import timezone
+    now = timezone.now()
+    sched = getattr(zone, "schedule", None)
+    upcoming = []
+    if sched:
+        for d, name in sorted(occupancy.holiday_names(timezone.localtime(now).date(),
+                                                      timezone.localtime(now).date() + timedelta(days=90)).items()):
+            if d.weekday() in sched.days:
+                upcoming.append({"start": d, "label": name, "kind": "holiday"})
+    exceptions = OccupancyException.objects.filter(zone=zone, end__gte=now - timedelta(days=30))
+    settings = HomeSettings.load()
+    return {"zone": zone, "sched": sched, "state": occupancy.now_state(zone, now), "holidays": upcoming,
+            "exceptions": exceptions, "evidence": occupancy.evidence(zone, 14, now), "message": message,
+            "weekday_names": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "settings": settings,
+            "today": timezone.localtime(now).date()}
+
+
+@login_required
+def schedule(request, pk):
+    zone = get_object_or_404(Zone, pk=pk)
+    message = ""
+    if request.method == "POST":
+        action = request.POST.get("action")
+        from datetime import datetime, time, timedelta
+        from django.utils import timezone
+        if action == "schedule":
+            days = ",".join(sorted(d for d in request.POST.getlist("weekday") if d in "0123456"))
+            try:
+                start = time.fromisoformat(request.POST["start"])
+                end = time.fromisoformat(request.POST["end"])
+            except (KeyError, ValueError):
+                start = end = None
+            if request.POST.get("enabled") != "on":
+                ZoneSchedule.objects.filter(zone=zone).delete()
+                message = "Schedule removed: this side counts as always in use."
+            elif start and end and end > start:
+                ZoneSchedule.objects.update_or_create(zone=zone, defaults={
+                    "weekdays": days, "start": start, "end": end,
+                    "skip_holidays": request.POST.get("skip_holidays") == "on"})
+                s = HomeSettings.load()
+                s.holiday_country = request.POST.get("country", s.holiday_country)[:2].upper()
+                s.holiday_subdivision = request.POST.get("subdivision", s.holiday_subdivision)[:10].upper()
+                s.save(update_fields=["holiday_country", "holiday_subdivision"])
+                message = "Schedule saved"
+            else:
+                message = "The end time has to be after the start time."
+        elif action == "add":
+            try:
+                d0 = datetime.fromisoformat(request.POST["start"]).date()
+                d1 = datetime.fromisoformat(request.POST.get("end") or request.POST["start"]).date()
+            except (KeyError, ValueError):
+                d0 = d1 = None
+            kind = request.POST.get("kind")
+            if d0 and d1 and d1 >= d0 and kind in OccupancyException.Kind.values:
+                OccupancyException.objects.create(
+                    zone=zone, kind=kind, note=request.POST.get("note", "")[:200],
+                    start=timezone.make_aware(datetime.combine(d0, time(0))),
+                    end=timezone.make_aware(datetime.combine(d1 + timedelta(days=1), time(0))))
+                message = "Added"
+            else:
+                message = "Pick a start date, and an end date on or after it."
+        elif action == "delete":
+            OccupancyException.objects.filter(zone=zone, pk=request.POST.get("id")).delete()
+            message = "Removed"
+        zone = Zone.objects.get(pk=zone.pk)
+    resp = render(request, "core/_sheet_schedule.html", _schedule_ctx(zone, message))
+    if request.method == "POST":
+        resp["HX-Trigger"] = "dashboard-changed"
+    return resp

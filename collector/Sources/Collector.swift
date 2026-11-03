@@ -24,6 +24,11 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
     @Published var lastHeartbeat: Date?
 
     static let heartbeatInterval: TimeInterval = 300
+    /// HomeKit on the Mac sometimes stops delivering events and keeps serving frozen cached values, even to
+    /// readValue (2026-11-02, after a ~40 s drop-out of every accessory). A relaunch recovers, so if no event
+    /// arrives from any accessory for this long, quit and let launchd's KeepAlive start us again.
+    /// The house normally produces 100+ events an hour, even overnight.
+    static let silenceLimit: TimeInterval = 30 * 60
 
     /// Characteristic types worth recording, with short names for logs.
     static let interesting: [String: String] = [
@@ -69,6 +74,7 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
     private let log = Logger(subsystem: "ca.fallday.hometemp.collector", category: "collector")
     private let writer = JSONLWriter()
     private var heartbeat: Timer?
+    private var lastEventAt = Date()
     private var activity: NSObjectProtocol?
 
     override init() {
@@ -109,7 +115,7 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
         for home in manager.homes {
             home.delegate = self
             dumpInventory(home)
-            for accessory in home.accessories { attach(accessory) }
+            for accessory in home.accessories { attach(accessory, in: home) }
         }
         status = "\(manager.homes.count) home(s), \(rows.count) characteristics. Log: \(writer.directory.path)"
         startHeartbeat()
@@ -121,7 +127,7 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
     func home(_ home: HMHome, didAdd accessory: HMAccessory) {
         record(["type": "accessoryAdded", "accessory": accessory.name, "uuid": accessory.uniqueIdentifier.uuidString])
         dumpInventory(home)
-        attach(accessory)
+        attach(accessory, in: home)
     }
 
     func home(_ home: HMHome, didRemove accessory: HMAccessory) {
@@ -136,20 +142,18 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
     // MARK: HMAccessoryDelegate
 
     func accessory(_ accessory: HMAccessory, service: HMService, didUpdateValueFor characteristic: HMCharacteristic) {
+        lastEventAt = Date()
         recordValue(characteristic, of: accessory, source: "event")
     }
 
     func accessoryDidUpdateReachability(_ accessory: HMAccessory) {
         record(["type": "reachability", "accessory": accessory.name,
                 "uuid": accessory.uniqueIdentifier.uuidString, "reachable": accessory.isReachable])
-        // After a drop-out (seen 2026-11-02: every accessory unreachable for ~40 s) HomeKit stopped delivering
-        // events and kept serving the old cached values, so re-read and re-subscribe when an accessory comes back.
-        if accessory.isReachable { attach(accessory) }
     }
 
     // MARK: Internals
 
-    private func attach(_ accessory: HMAccessory) {
+    private func attach(_ accessory: HMAccessory, in home: HMHome) {
         accessory.delegate = self
         for service in accessory.services {
             for c in service.characteristics where Self.records(c) {
@@ -205,30 +209,23 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
         }
     }
 
-    /// Fresh read of the climate values; lets the server tell "no change" from "collector down".
+    /// Snapshot of last-known (cached) climate values; lets the server tell "no change" from "collector down".
     /// Limited to the curated set so repeats of every light and switch don't swamp the database.
-    /// It reads from the device rather than HomeKit's cache, because the cache freezes when event delivery stops,
-    /// and it re-enables notifications (a no-op when they're still on) so a lost subscription heals itself.
     private func beat() {
         lastHeartbeat = Date()
+        let silent = Date().timeIntervalSince(lastEventAt)
+        if silent > Self.silenceLimit {
+            // Don't upload another round of cached values; they're the stale ones. The record says why we quit.
+            record(["type": "watchdog", "silentSeconds": Int(silent)])
+            log.error("No HomeKit events for \(Int(silent)) s; exiting so launchd relaunches us")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { exit(1) }
+            return
+        }
         for home in manager.homes {
             for accessory in home.accessories {
                 for service in accessory.services {
                     for c in service.characteristics where Self.interesting[c.characteristicType] != nil {
-                        c.readValue { [weak self] error in
-                            DispatchQueue.main.async {
-                                guard let self else { return }
-                                if let error {
-                                    // Don't upload the cached value: it may be the stale one we're avoiding.
-                                    self.recordError("heartbeat read", c, accessory, error, attempt: 0)
-                                } else {
-                                    self.recordValue(c, of: accessory, source: "heartbeat")
-                                }
-                            }
-                        }
-                        if c.properties.contains(HMCharacteristicPropertySupportsEventNotification) {
-                            subscribe(c, of: accessory, attempt: Self.retryDelays.count)
-                        }
+                        recordValue(c, of: accessory, source: "heartbeat")
                     }
                 }
             }

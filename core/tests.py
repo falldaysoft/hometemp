@@ -461,3 +461,49 @@ class ThermalTests(TestCase):
         self.assertIn("Warm-ups", body)
         calc = self.client.get(f"/zone/{self.office.pk}/warmup/?calc=1&from=15&to=20&outdoor=0").content.decode()
         self.assertIn("min</strong> of heating", calc)
+
+
+class GapTests(TestCase):
+    """A stretch with no readings is drawn as missing data, not as a line bridging it."""
+
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.now = timezone.now().replace(second=0, microsecond=0)
+        self.m = lambda n: self.now - timedelta(minutes=n)
+
+    def test_line_lifts_pen_across_gap_and_reports_it(self):
+        from datetime import timedelta
+        from .dashboard import gap_spans, line_path, max_gap
+        # Every 5 min for 30 min, then nothing for 2 h, then 30 more min.
+        pts = [(self.m(180 - 5 * i), 20.0) for i in range(7)] + [(self.m(30 - 5 * i), 22.0) for i in range(7)]
+        d = line_path(pts, lambda t: (t - self.m(180)).total_seconds() / 60, lambda v: v, max_gap())
+        self.assertEqual(d.count("M"), 2)
+        self.assertEqual(gap_spans(pts, max_gap(), self.now), [(self.m(150), self.m(30))])
+        # Continuous 5-minute data has no gaps; quiet up to the limit isn't a gap either.
+        self.assertEqual(gap_spans(pts[:7], max_gap(), self.m(150) + timedelta(minutes=19)), [])
+
+    def test_setpoint_step_stops_at_gap_and_only_current_run_reaches_edge(self):
+        from .dashboard import max_gap, step_path
+        pts = [(self.m(180), 15.0), (self.m(175), 15.0), (self.m(30), 22.0), (self.m(15), 22.0)]
+        x = lambda t: (t - self.m(180)).total_seconds() / 60
+        d = step_path(pts, x, lambda v: v, max_gap(), self.now, 180.0)
+        first, second = d.split(" M")
+        self.assertTrue(first.endswith("10.0,15.0"))  # held one heartbeat past 175 min ago, not across the gap
+        self.assertTrue(second.endswith("180.0,22.0"))
+        stale = step_path(pts[:2], x, lambda v: v, max_gap(), self.now, 180.0)
+        self.assertTrue(stale.endswith("10.0,15.0"))  # no recent data: don't draw it up to now
+
+    def test_accessory_chart_and_tile_show_no_data(self):
+        from .dashboard import accessory_detail, series, spark_gaps
+        from .models import Characteristic
+        acc = Accessory.objects.create(uuid=ACC, name="Office Thermostat", role="ambient")
+        temp = Characteristic.objects.create(uuid="C5000000-0000-0000-0000-000000000001", accessory=acc, kind="currentTemperature")
+        for n in [*range(300, 240, -5), *range(60, -1, -5)]:
+            Reading.objects.create(characteristic=temp, ts=self.m(n), value=20.0, source=1)
+        chart = accessory_detail(acc, now=self.now)["chart"]
+        self.assertEqual(len(chart["gaps"]), 1)
+        self.assertIn("No data", chart["gaps"][0]["label"])
+        self.assertEqual(chart["line"].count("M"), 2)
+        pts = series([temp.id], self.m(300))[temp.id]
+        self.assertEqual(spark_gaps(pts, self.m(300), self.now).count("M"), 1)

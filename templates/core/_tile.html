@@ -35,7 +35,8 @@
   {% endif %}
   {% if t.spark %}
   <svg class="mt-2 w-full" viewBox="0 -2 100 32" height="{% if wide %}34{% else %}22{% endif %}" preserveAspectRatio="none" aria-hidden="true">
-    <path class="spark" d="{{ t.spark }}" fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+    {% if t.spark_gaps %}<path class="spark spark-gap" d="{{ t.spark_gaps }}" fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke"/>{% endif %}
+    <path class="spark" d="{{ t.spark }}" fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
   </svg>
   {% endif %}
 </button>

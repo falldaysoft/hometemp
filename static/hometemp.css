@@ -63,6 +63,7 @@ body {
 .tile.lit .sub { color: rgba(60, 60, 67, 0.7); }
 .tile .spark { stroke: rgba(255, 255, 255, 0.55); }
 .tile.lit .spark { stroke: rgba(28, 28, 30, 0.45); }
+.spark.spark-gap { stroke-dasharray: 1.5 3.5; opacity: 0.6; }
 
 .icon-disc {
   display: grid; place-items: center; width: 34px; height: 34px; border-radius: 999px;
@@ -133,6 +134,8 @@ select.field option { color: #000; }
 .chart .set { fill: none; stroke: var(--heat); stroke-width: 1.5; stroke-dasharray: 4 4; }
 .chart .band-heating { fill: rgba(255, 159, 10, 0.28); }
 .chart .band-cooling { fill: rgba(90, 200, 250, 0.28); }
+.chart .nodata-line { stroke: rgba(255, 255, 255, 0.13); stroke-width: 2; }
+.nodata-swatch { background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.22) 0 2px, transparent 2px 6px); }
 .chart .grid { stroke: var(--hair); }
 .chart text { fill: var(--text-3); font-size: 11px; }
 

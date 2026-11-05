@@ -34,6 +34,8 @@
   </div>
   <div class="group mt-2 p-3">
     <svg class="chart w-full" viewBox="-28 -8 {{ chart.w|add:36 }} {{ chart.h|add:28 }}" role="img" aria-label="Temperature history">
+      <defs><pattern id="nodata-acc" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="nodata-line"/></pattern></defs>
+      {% for g in chart.gaps %}<rect class="nodata" x="{{ g.x }}" y="0" width="{{ g.w }}" height="{{ chart.h }}" fill="url(#nodata-acc)"><title>{{ g.label }}</title></rect>{% endfor %}
       {% for b in chart.bands %}<rect class="band-{{ b.mode }}" x="{{ b.x }}" y="0" width="{{ b.w }}" height="{{ chart.h }}" rx="2"/>{% endfor %}
       <line class="grid" x1="0" x2="{{ chart.w }}" y1="{{ chart.y_hi }}" y2="{{ chart.y_hi }}"/>
       <line class="grid" x1="0" x2="{{ chart.w }}" y1="{{ chart.y_lo }}" y2="{{ chart.y_lo }}"/>
@@ -60,11 +62,12 @@
     </div>
     {% endfor %}
     {% endif %}
-    {% if chart.step or chart.bands %}
+    {% if chart.step or chart.bands or chart.gaps %}
     <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 px-1 text-[12px] text-[var(--text-2)]">
       <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-white"></span>Temperature</span>
       {% if chart.step %}<span class="flex items-center gap-1.5"><span class="inline-block w-4 border-t-2 border-dashed border-[var(--heat)]"></span>Heat setpoint</span>{% endif %}
       {% if chart.bands %}<span class="flex items-center gap-1.5"><span class="inline-block h-3 w-3 rounded-sm bg-[rgba(255,159,10,.35)]"></span>Furnace running</span>{% endif %}
+      {% if chart.gaps %}<span class="flex items-center gap-1.5"><span class="nodata-swatch inline-block h-3 w-3 rounded-sm"></span>No data</span>{% endif %}
     </div>
     {% endif %}
   </div>

@@ -27,8 +27,8 @@ final class Collector: NSObject, ObservableObject, HMHomeManagerDelegate, HMAcce
     /// HomeKit on the Mac sometimes stops delivering events and keeps serving frozen cached values, even to
     /// readValue (2026-11-02, after a ~40 s drop-out of every accessory). A relaunch recovers, so if no event
     /// arrives from any accessory for this long, quit and let launchd's KeepAlive start us again.
-    /// The house normally produces 100+ events an hour, even overnight.
-    static let silenceLimit: TimeInterval = 30 * 60
+    /// Quiet spells of 30–42 min happen normally (seen Nov 3–4), so the limit sits well above that.
+    static let silenceLimit: TimeInterval = 60 * 60
 
     /// Characteristic types worth recording, with short names for logs.
     static let interesting: [String: String] = [

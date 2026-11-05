@@ -87,9 +87,65 @@ def series(characteristic_ids, since, bucket=timedelta(minutes=10), offset_by_ch
     return {cid: [(k + bucket / 2, sum(vs) / len(vs)) for k, vs in sorted(b.items())] for cid, b in buckets.items()}
 
 
-def spark_path(points, since, until, w=100.0, h=28.0, lo=None, hi=None):
-    if len(points) < 2:
-        return ""
+# The collector uploads every climate value at least every 5 minutes, so a longer silence in a series means
+# no data (collector down or HomeKit stalled), not a steady reading. Lines break there instead of bridging it.
+HEARTBEAT = timedelta(minutes=5)
+
+
+def max_gap(bucket=None):
+    """Longest spacing between points that still counts as continuous data."""
+    return max(timedelta(minutes=20), (bucket or HEARTBEAT) * 2.5)
+
+
+def split_runs(points, gap):
+    """[(t, v)] → runs of points with no spacing longer than gap."""
+    runs, cur = [], []
+    for p in points:
+        if cur and p[0] - cur[-1][0] > gap:
+            runs.append(cur)
+            cur = []
+        cur.append(p)
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def gap_spans(points, gap, until=None):
+    """[(start, end)] stretches with no data, including a trailing one up to `until`."""
+    spans = [(a[0], b[0]) for a, b in zip(points, points[1:]) if b[0] - a[0] > gap]
+    if until and points and until - points[-1][0] > gap:
+        spans.append((points[-1][0], until))
+    return spans
+
+
+def line_path(points, x, y, gap):
+    """SVG path through the points, lifting the pen across gaps; a lone point becomes a dot (round caps)."""
+    parts = []
+    for run in split_runs(points, gap):
+        coords = [f"{x(t):.1f},{y(v):.1f}" for t, v in run]
+        parts.append(f"M{coords[0]} h0.01" if len(coords) == 1 else "M" + " L".join(coords))
+    return " ".join(parts)
+
+
+def step_path(points, x, y, gap, until, end_x):
+    """Step line (a setpoint holds until it changes) that stops at gaps. The last run holds to the chart's
+    right edge only if it's current; otherwise each run holds one heartbeat past its last reading."""
+    runs = split_runs(points, gap)
+    parts = []
+    for i, run in enumerate(runs):
+        seg = []
+        for j, (t, v) in enumerate(run):
+            if j:
+                seg.append(f"{x(t):.1f},{y(run[j - 1][1]):.1f}")
+            seg.append(f"{x(t):.1f},{y(v):.1f}")
+        last_t, last_v = run[-1]
+        end = end_x if i == len(runs) - 1 and until - last_t <= gap else x(min(last_t + HEARTBEAT, until))
+        seg.append(f"{end:.1f},{y(last_v):.1f}")
+        parts.append("M" + " L".join(seg))
+    return " ".join(parts)
+
+
+def _spark_scale(points, since, until, w, h, lo, hi):
     vals = [v for _, v in points]
     lo = min(vals) if lo is None else lo
     hi = max(vals) if hi is None else hi
@@ -97,8 +153,24 @@ def spark_path(points, since, until, w=100.0, h=28.0, lo=None, hi=None):
         mid = (hi + lo) / 2
         lo, hi = mid - 0.5, mid + 0.5
     span = (until - since).total_seconds()
-    pts = [(w * (t - since).total_seconds() / span, h - h * (v - lo) / (hi - lo)) for t, v in points]
-    return "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    return (lambda t: w * (t - since).total_seconds() / span), (lambda v: h - h * (v - lo) / (hi - lo))
+
+
+def spark_path(points, since, until, w=100.0, h=28.0, lo=None, hi=None, gap=None):
+    if len(points) < 2:
+        return ""
+    x, y = _spark_scale(points, since, until, w, h, lo, hi)
+    return line_path(points, x, y, gap or max_gap(timedelta(minutes=10)))
+
+
+def spark_gaps(points, since, until, w=100.0, h=28.0, lo=None, hi=None, gap=None):
+    """Dotted bridges across the gaps in a sparkline, so a missing stretch reads as missing, not flat."""
+    if len(points) < 2:
+        return ""
+    x, y = _spark_scale(points, since, until, w, h, lo, hi)
+    gap = gap or max_gap(timedelta(minutes=10))
+    return " ".join(f"M{x(a[0]):.1f},{y(a[1]):.1f} L{x(b[0]):.1f},{y(b[1]):.1f}"
+                    for a, b in zip(points, points[1:]) if b[0] - a[0] > gap)
 
 
 def run_intervals(state_readings, kind, until):
@@ -146,7 +218,7 @@ class Tile:
                 self.mode, self.state = "Off", "off"
             self.heat_to = get("heatingThreshold") if get("heatingThreshold") is not None else get("targetTemperature")
             self.cool_to = get("coolingThreshold")
-        self.spark = ""
+        self.spark = self.spark_gaps = ""
         self.delta = None
 
     @property
@@ -187,7 +259,9 @@ def dashboard(now=None):
     # Until there's a full day of data, stretch the sparkline over what we have.
     first = min((pts[0][0] for pts in hist.values() if pts), default=since)
     for t in tiles:
-        t.spark = spark_path(hist.get(temp_chars.get(t.acc.id), []), max(since, first), now)
+        pts = hist.get(temp_chars.get(t.acc.id), [])
+        t.spark = spark_path(pts, max(since, first), now)
+        t.spark_gaps = spark_gaps(pts, max(since, first), now)
 
     zones = []
     for zone in Zone.objects.all():
@@ -259,7 +333,7 @@ def overlay_lines(chart, by_kind, show, bucket):
         x = lambda t: w * max(0.0, (t - since).total_seconds()) / span
         y = lambda v: h - h * (v - lo) / (hi - lo)
         out.append({"kind": kind, "label": label, "unit": unit, "color": color,
-                    "d": "M" + " L".join(f"{x(t):.1f},{y(v):.1f}" for t, v in pts),
+                    "d": line_path(pts, x, y, max_gap(bucket)),
                     "min": min(vals), "max": max(vals), "last": vals[-1],
                     "fmt": (lambda v, k=kind, u=unit: fmt_value(k, v) if k == "airQuality" else
                             (f"{v:.0f}{u}" if abs(v) >= 10 else f"{v:.1f}{u}"))})
@@ -306,7 +380,7 @@ def accessory_detail(acc, now=None, hours=24, show=()):
         bands = [(max(r.start, since), r.end, r.mode)
                  for r in HvacInterval.objects.filter(thermostat=acc, end__gte=since)]
         first = Reading.objects.filter(characteristic__accessory=acc).order_by("ts").values_list("ts", flat=True).first()
-        chart = build_chart(temp, setpoint, bands, max(since, first) if first else since, now)
+        chart = build_chart(temp, setpoint, bands, max(since, first) if first else since, now, gap=max_gap(bucket))
         if chart:
             chart["overlays"] = overlay_lines(chart, by_kind, set(show), bucket)
     available = [{"kind": k, "label": l, "color": c, "on": k in show}
@@ -315,24 +389,17 @@ def accessory_detail(acc, now=None, hours=24, show=()):
             "show": [k for k in show if k in by_kind]}
 
 
-def build_chart(temp, setpoint, bands, since, until, w=640, h=180):
+def build_chart(temp, setpoint, bands, since, until, w=640, h=180, gap=None):
     vals = [v for _, v in temp] + [v for _, v in setpoint]
     if len(temp) < 2:
         return None
+    gap = gap or max_gap()
     lo, hi = min(vals) - 0.5, max(vals) + 0.5
     span = (until - since).total_seconds()
     x = lambda t: w * max(0, (t - since).total_seconds()) / span
     y = lambda v: h - h * (v - lo) / (hi - lo)
-    line = "M" + " L".join(f"{x(t):.1f},{y(v):.1f}" for t, v in temp)
-    step = ""
-    if setpoint:
-        pts = []
-        for i, (t, v) in enumerate(setpoint):
-            if i:
-                pts.append(f"{x(t):.1f},{y(setpoint[i - 1][1]):.1f}")
-            pts.append(f"{x(t):.1f},{y(v):.1f}")
-        pts.append(f"{w:.1f},{y(setpoint[-1][1]):.1f}")
-        step = "M" + " L".join(pts)
+    line = line_path(temp, x, y, gap)
+    step = step_path(setpoint, x, y, gap, until, w) if setpoint else ""
     ticks = []
     t = since.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     stride = max(1, round(span / 3600 / 6))
@@ -344,9 +411,16 @@ def build_chart(temp, setpoint, bands, since, until, w=640, h=180):
     return {
         "w": w, "h": h, "line": line, "step": step, "ticks": ticks,
         "bands": [{"x": x(a), "w": max(1.5, x(b) - x(a)), "mode": m} for a, b, m in bands],
+        "gaps": _gap_rects(gap_spans(temp, gap, until), x),
         "hi": hi - 0.5, "lo": lo + 0.5, "y_hi": y(hi - 0.5), "y_lo": y(lo + 0.5),
         "run_minutes": round(run_seconds / 60), "cycles": len(bands), "since": since, "until": until,
     }
+
+
+def _gap_rects(spans, x):
+    return [{"x": x(a), "w": max(1.5, x(b) - x(a)),
+             "label": f"No data {timezone.localtime(a):%a %-I:%M %p} – {timezone.localtime(b):%a %-I:%M %p}".replace("AM", "a.m.").replace("PM", "p.m.")}
+            for a, b in spans]
 
 
 WMO = {0: "Clear", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast", 45: "Fog", 48: "Freezing fog",
@@ -391,7 +465,7 @@ def outdoor(now=None):
         "feels": (cur.data or {}).get("apparent_temperature") if cur else None,
         "wind": (cur.data or {}).get("wind_speed_10m") if cur else None,
         "high": max(today) if today else None, "low": min(today) if today else None,
-        "spark": spark_path([(t, v) for t, v in actual if v is not None], since, now),
+        "spark": spark_path([(t, v) for t, v in actual if v is not None], since, now, gap=max_gap(timedelta(hours=1))),
         "stale": cur is None or now - cur.ts > timedelta(minutes=45),
     }
 
@@ -511,19 +585,14 @@ def timeline(zone=None, hours=24, now=None, w=900, h=260):
     span = (now - start).total_seconds() or 1
     x = lambda t: w * max(0.0, (t - start).total_seconds()) / span
     y = lambda v: h - h * (v - lo) / (hi - lo)
-    path = lambda pts: "M" + " L".join(f"{x(t):.1f},{y(v):.1f}" for t, v in pts)
+    gap = max_gap(bucket)
     for l in lines:
-        l["d"] = path(l["pts"])
+        l["d"] = line_path(l["pts"], x, y, gap)
         l["end_y"] = y(l["last"])
-    steps = []
-    for pts in setpoints:
-        seg = []
-        for i, (t, v) in enumerate(pts):
-            if i:
-                seg.append(f"{x(t):.1f},{y(pts[i - 1][1]):.1f}")
-            seg.append(f"{x(t):.1f},{y(v):.1f}")
-        seg.append(f"{w:.1f},{y(pts[-1][1]):.1f}")
-        steps.append("M" + " L".join(seg))
+    steps = [step_path(pts, x, y, gap, now, w) for pts in setpoints]
+    # No data = no room sensor reported, not just one of them going quiet.
+    every = sorted({t for l in lines for t, _ in l["pts"]})
+    gaps = _gap_rects(gap_spans([(t, None) for t in every], gap, now), x)
 
     outdoor_d = outdoor_axis = None
     if len(outdoor_pts) >= 2:
@@ -559,6 +628,6 @@ def timeline(zone=None, hours=24, now=None, w=900, h=260):
         "bands": [{"x": x(max(r.start, start)), "w": max(1.5, x(min(r.end, now)) - x(max(r.start, start))),
                    "mode": r.mode, "uncertain": r.uncertain} for r in runs],
         "outdoor": outdoor_d, "outdoor_axis": outdoor_axis, "run_min": run_min, "cycles": runs.count(),
-        "occupancy": occ,
+        "occupancy": occ, "gaps": gaps,
         "start": start,
     }
